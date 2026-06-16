@@ -171,6 +171,16 @@ db.commit()
 - **Natural language over slash commands**: Users type like they talk. LLM figures out the intent. No `/create_meeting --time 14:00` memorization.
 - **Bot replies in-channel**: Transparent. Everyone sees the meeting being created. No secret DM threads.
 
+## Roadmap
+
+- **Weekly / monthly HR reports** — auto-generated summary of attendance, absences, late arrivals, and meeting participation
+- **Export to spreadsheet** — download attendance data, absence logs, and meeting history as CSV or Excel
+- **Multi-server support** — one dashboard for multiple Discord servers (agencies, holding companies)
+- **Slack integration** — same bot, Slack workspace (for hybrid teams)
+- **Leave balance tracking** — annual leave, sick leave quotas per employee
+- **Email notifications** — daily digest of who was absent or late
+
+
 ## License
 
 Private. Contact for licensing.

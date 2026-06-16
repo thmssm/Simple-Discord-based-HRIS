@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YourOrg HR Bot — Discord attendance, absence, and voice tracker."""
+"""Simple Discord HRIS Bot — Discord attendance, absence, and voice tracker."""
 
 import os
 import sqlite3

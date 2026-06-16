@@ -1,6 +1,6 @@
-# YourOrg HR Dashboard
+# Simple Discord HRIS Dashboard
 
-HR attendance management system for YourOrg — Discord bot + web dashboard.
+Attendance management system — Discord bot + web dashboard.
 
 ## Overview
 
@@ -57,8 +57,8 @@ export TURNSTILE_SECRET_KEY="your_turnstile_secret"
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USER/yourorg-hr-dashboard.git
-cd yourorg-hr-dashboard
+git clone https://github.com/YOUR_USER/simple-discord-hris.git
+cd simple-discord-hris
 
 # Create venv
 python3 -m venv .venv && source .venv/bin/activate
@@ -83,7 +83,7 @@ python3 dashboard_api.py &
 ```ini
 # /etc/systemd/system/hr-bot.service
 [Unit]
-Description=YourOrg HR Discord Bot
+Description=Simple Discord HRIS Discord Bot
 After=network.target
 
 [Service]
@@ -146,4 +146,4 @@ db.commit()
 
 ## License
 
-Private — YourOrg internal use.
+Private — internal use.

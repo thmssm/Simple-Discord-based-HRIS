@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HR Admin — Members</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;padding:24px;max-width:800px;margin:0 auto}
+@media(max-width:600px){body{padding:12px}}
+h1{font-size:18px;color:#e6edf3;margin-bottom:4px}
+h2{font-size:14px;margin:18px 0 8px;color:#7ee787;padding-bottom:4px;border-bottom:1px solid #21262d}
+a{color:#58a6ff;text-decoration:none;font-size:13px}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #21262d;font-size:13px}
+th{color:#8b949e;font-size:11px;font-weight:600}
+.empty{color:#484f58;padding:8px 0;font-size:13px}
+.hidden{display:none}
+input,select{width:100%;padding:6px;margin-bottom:8px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;font-size:13px}
+.btn{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px}
+.btn-green{background:#238636;border:1px solid #2ea043;color:#fff}
+.btn-red{color:#da3633}
+#status{font-size:11px;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<h1>Admin — Members</h1>
+<a href="/">← Back to Dashboard</a> | <a href="/api/logout" style="color:#da3633">Logout</a>
+<div id="status" style="display:none"></div>
+
+<h2>Members</h2>
+<div id="members-list"></div>
+<button onclick="showMemberForm()" class="btn btn-green" style="margin-top:12px">+ Add Member</button>
+
+<div id="member-form" style="display:none;margin-top:12px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px">
+  <input id="m-did" placeholder="Discord ID">
+  <div style="display:flex;gap:8px"><input id="m-first" placeholder="First name" style="flex:1"><input id="m-last" placeholder="Last name" style="flex:1"></div>
+  <input id="m-nick" placeholder="Nickname (e.g. Budi, Wira)">
+  <select id="m-gender"><option value="">Gender</option><option>Male</option><option>Female</option></select>
+  <input id="m-role" placeholder="Role (e.g. HR, Developer)">
+  <div style="display:flex;gap:8px"><button onclick="saveMember()" class="btn btn-green">Save</button><button onclick="document.getElementById('member-form').style.display='none'" class="btn">Cancel</button></div>
+</div>
+
+<script>
+var API='';
+
+function status(msg,c){var s=document.getElementById('status');s.textContent=msg;s.style.color=c||'#8b949e';s.style.display='block';setTimeout(function(){s.style.display='none'},2000)}
+
+function showMemberForm(){
+  document.getElementById('member-form').style.display='block';
+  document.getElementById('m-did').value='';document.getElementById('m-did').dataset.editId='';
+  document.getElementById('m-first').value='';document.getElementById('m-last').value='';
+  document.getElementById('m-nick').value='';
+  document.getElementById('m-gender').value='';document.getElementById('m-role').value='';
+  document.getElementById('m-first').focus()
+}
+
+async function editMember(id){
+  var r=await fetch(API+'/api/members'),members=await r.json();
+  var m=members.find(function(x){return x.id===id});if(!m)return;
+  document.getElementById('member-form').style.display='block';
+  document.getElementById('m-first').value=m.first_name;
+  document.getElementById('m-last').value=m.last_name||'';
+  document.getElementById('m-nick').value=m.nickname||'';
+  document.getElementById('m-did').value=m.discord_id||'';
+  document.getElementById('m-did').dataset.editId=id;
+  document.getElementById('m-gender').value=m.gender||'';
+  document.getElementById('m-role').value=m.role||''
+}
+
+async function saveMember(){
+  var fn=document.getElementById('m-first').value;if(!fn)return;
+  var editId=document.getElementById('m-did').dataset.editId;
+  var body={first_name:fn,last_name:document.getElementById('m-last').value,nickname:document.getElementById('m-nick').value,discord_id:document.getElementById('m-did').value,gender:document.getElementById('m-gender').value,role:document.getElementById('m-role').value};
+  body.action=editId?'update':'add';if(editId)body.id=parseInt(editId);
+  await fetch(API+'/api/members',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  document.getElementById('member-form').style.display='none';await loadMembers();status(editId?'Updated':'Added','#3fb950')
+}
+
+async function deleteMember(id){if(!confirm('Delete?'))return;await fetch(API+'/api/members',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:id})});await loadMembers();status('Deleted','#da3633')}
+
+async function loadMembers(){
+  var r=await fetch(API+'/api/members'),d=await r.json();
+  if(!d.length){document.getElementById('members-list').innerHTML='<div class=empty>No members</div>';return}
+  document.getElementById('members-list').innerHTML='<table><thead><tr><th>Name</th><th>Discord ID</th><th>Gender</th><th>Role</th><th></th></tr></thead><tbody>'+d.map(function(m){return '<tr><td>'+m.first_name+' '+(m.last_name||'')+'</td><td style=font-size:11px;color:#8b949e>'+(m.discord_id||'-')+'</td><td>'+(m.gender||'')+'</td><td>'+(m.role||'')+'</td><td style=text-align:right><button onclick=editMember('+m.id+') style=background:transparent;border:none;color:#58a6ff;cursor:pointer;font-size:12px>Edit</button> <button onclick=deleteMember('+m.id+') style=background:transparent;border:none;color:#da3633;cursor:pointer;font-size:12px>Delete</button></td></tr>'}).join('')+'</tbody></table>'
+}
+
+loadMembers();
+</script>
+</body>
+</html>

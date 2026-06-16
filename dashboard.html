@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HR Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;padding:24px;max-width:1000px;margin:0 auto}
+@media(max-width:600px){body{padding:12px}}
+h1{font-size:20px;margin-bottom:4px;color:#e6edf3}
+h2{font-size:14px;margin:18px 0 8px;color:#7ee787;padding-bottom:4px;border-bottom:1px solid #21262d}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #21262d;font-size:13px}
+th{color:#8b949e;font-size:11px;font-weight:600}
+.stats{display:flex;gap:16px;font-size:12px;color:#8b949e;margin-bottom:4px}
+.badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge-active{background:#238636;color:#fff}
+.empty{color:#484f58;padding:8px 0;font-size:13px}
+#date{color:#484f58;font-size:11px;margin-bottom:2px}
+.tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #21262d}
+.tab{padding:8px 16px;cursor:pointer;font-size:13px;color:#8b949e;border-bottom:2px solid transparent;margin-bottom:-2px}
+.tab.active{color:#58a6ff;border-bottom-color:#58a6ff}
+#refresh{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;float:right}
+#status{font-size:11px;margin-bottom:6px}
+.hidden{display:none}
+.bar-wrap{background:#21262d;border-radius:4px;height:6px;margin-top:2px}
+.bar{background:#58a6ff;height:6px;border-radius:4px}
+input,select{width:100%;padding:6px;margin-bottom:8px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;font-size:13px}
+.btn{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px}
+.btn-green{background:#238636;border:1px solid #2ea043;color:#fff}
+.btn-red{color:#da3633}
+.badge-day-off,.badge-Off{background:#da3633;color:#fff}
+.badge-sick,.badge-Sick{background:#d29922;color:#000}
+.badge-afk,.badge-AFK{background:#3fb950;color:#000}
+.badge-Leave{background:#58a6ff;color:#000}
+.badge-other,.badge-Other{background:#484f58;color:#c9d1d9}
+.checklist{max-height:200px;overflow-y:auto;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;margin-bottom:8px}
+.checklist label{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;cursor:pointer}
+.checklist input[type=checkbox]{width:auto;margin:0}
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('today')">Today</div>
+  <div class="tab" onclick="switchTab('attendance')">Attendance</div>
+  <div class="tab" onclick="switchTab('schedules')">Schedules</div>
+  <div class="tab" onclick="switchTab('history')">History</div>
+  <span style="color:#30363d;margin:0 4px">|</span>
+  <a href="/calendar" style="padding:8px 16px;font-size:13px;color:#8b949e;text-decoration:none">Calendar</a>
+  <a href='/admin' style='padding:8px 16px;font-size:13px;color:#8b949e;text-decoration:none'>Admin</a>
+  <span style='color:#30363d'>|</span>
+  <a href='/api/logout' style='padding:8px 16px;font-size:13px;color:#da3633;text-decoration:none'>Logout</a>
+  <button id="refresh" onclick="refresh()">Refresh</button>
+</div>
+<div id="status" style="display:none"></div>
+<div id="date"></div>
+
+<div id="tab-today">
+  <h2>Absences</h2><div id="absences"></div>
+  <div style="margin-bottom:12px"><a href="/absences" style="font-size:11px;color:#58a6ff">View Absence Log →</a></div>
+  <h2>In Voice</h2><div id="voice-channels"></div>
+  <h2>Meetings</h2><div id="meetings"></div>
+</div>
+<div id="tab-attendance" class="hidden">
+  <h2>Voice Activity Today</h2><div id="attendance-users"></div>
+  <div style="margin-top:12px"><a href="/attendance-history" style="font-size:12px;color:#58a6ff">View Attendance History →</a></div>
+</div>
+<div id="tab-schedules" class="hidden">
+  <h2>Recurring Schedules</h2><div id="schedules-list"></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <button onclick="showScheduleForm()" class="btn btn-green">+ Add Schedule</button>
+    <button onclick="refreshChannels()" class="btn">Refresh Channels</button>
+  </div>
+  <div id="schedule-form" style="display:none;margin-top:12px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px">
+    <input id="s-name" placeholder="Meeting name">
+    <div style="color:#8b949e;font-size:11px;margin-bottom:4px">Days</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px" id="s-days">
+      <label style="font-size:11px;cursor:pointer;padding:2px 6px;background:#21262d;border-radius:4px"><input type=checkbox value=0 style="width:auto;margin:0 4px 0 0">Mon</label>
+      <label style="font-size:11px;cursor:pointer;padding:2px 6px;background:#21262d;border-radius:4px"><input type=checkbox value=1 style="width:auto;margin:0 4px 0 0">Tue</label>
+      <label style="font-size:11px;cursor:pointer;padding:2px 6px;background:#21262d;border-radius:4px"><input type=checkbox value=2 style="width:auto;margin:0 4px 0 0">Wed</label>
+      <label style="font-size:11px;cursor:pointer;padding:2px 6px;background:#21262d;border-radius:4px"><input type=checkbox value=3 style="width:auto;margin:0 4px 0 0">Thu</label>
+      <label style="font-size:11px;cursor:pointer;padding:2px 6px;background:#21262d;border-radius:4px"><input type=checkbox value=4 style="width:auto;margin:0 4px 0 0">Fri</label>
+      <label style="font-size:11px;cursor:pointer;padding:2px 6px;background:#21262d;border-radius:4px"><input type=checkbox value=5 style="width:auto;margin:0 4px 0 0">Sat</label>
+      <label style="font-size:11px;cursor:pointer;padding:2px 6px;background:#21262d;border-radius:4px"><input type=checkbox value=6 style="width:auto;margin:0 4px 0 0">Sun</label>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <select id="s-start-h" style="flex:1;min-width:0"><option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option><option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option><option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option></select>
+      <select id="s-start-m" style="flex:1;min-width:0"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select>
+      <span style="color:#8b949e">-</span>
+      <select id="s-end-h" style="flex:1;min-width:0"><option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option><option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option><option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option></select>
+      <select id="s-end-m" style="flex:1;min-width:0"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select>
+    </div>
+    <input id="s-channel" placeholder="Channel" list="channel-list"><datalist id="channel-list"></datalist>
+    <div style="color:#8b949e;font-size:11px;margin-bottom:4px">Assigned Members</div>
+    <div class="checklist" id="schedule-members-checklist"></div>
+    <div style="display:flex;gap:8px"><button onclick="saveSchedule()" class="btn btn-green">Save</button><button onclick="document.getElementById('schedule-form').style.display='none'" class="btn">Cancel</button></div>
+  </div>
+</div>
+<div id="tab-history" class="hidden">
+  <h2>Meeting History</h2>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+    <input type="date" id="history-date" style="width:auto;margin:0" onchange="loadHistory()">
+  </div>
+  <div id="history-list"></div>
+</div>
+
+<script>
+var API='';
+var labels={day_off:'Off',sick:'Sick',afk:'AFK',paid_leave:'Leave',half_day:'Half Day',other:'Other'};
+var dayNames=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+var allMembers=[];
+var scheduleEditId=null;
+
+function status(msg,c){var s=document.getElementById('status');s.textContent=msg;s.style.color=c||'#8b949e';s.style.display='block';setTimeout(function(){s.style.display='none'},2000)}
+function getActiveTab(){var t=document.getElementById('tab-today');if(t.classList.contains('hidden')){t=document.getElementById('tab-attendance');if(!t.classList.contains('hidden'))return'attendance';t=document.getElementById('tab-history');if(!t.classList.contains('hidden'))return'history';t=document.getElementById('tab-schedules');if(!t.classList.contains('hidden'))return'schedules'}return'today'}
+
+function fmtTime(utc){
+  try{
+    var parts=utc.split(':');var h=parseInt(parts[0]),m=parseInt(parts[1]);
+    h=(h+7)%24;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+  }catch(e){return utc}
+}
+
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.textContent.trim().toLowerCase()===tab)});
+  document.getElementById('tab-today').classList.toggle('hidden',tab!=='today');
+  document.getElementById('tab-attendance').classList.toggle('hidden',tab!=='attendance');
+  document.getElementById('tab-schedules').classList.toggle('hidden',tab!=='schedules');
+  document.getElementById('tab-history').classList.toggle('hidden',tab!=='history');
+  localStorage.setItem('activeTab',tab);
+  if(tab==='attendance') loadAttendance();
+  if(tab==='schedules') loadSchedules();
+  if(tab==='history') loadHistory();
+}
+
+async function refresh(){status('Updating...','#d29922');loadToday();status('Data updated','#3fb950')}
+
+async function loadToday(){
+  try{
+  var r=await fetch(API+'/api/today'),d=await r.json();
+  document.getElementById('date').textContent=d.date;
+  var a=document.getElementById('absences');
+  if(!d.absences.length)a.innerHTML='<div class=empty>Everyone present</div>';
+  else a.innerHTML='<table><thead><tr><th>Name</th><th>Status</th><th>Details</th></tr></thead><tbody>'+d.absences.map(function(x){return '<tr><td>'+x.user_name+'</td><td><span class="badge badge-'+(x.absence_type==='day_off'?'Off':x.absence_type)+'">'+(labels[x.absence_type]||x.absence_type)+'</span></td><td>'+x.note.substring(0,80)+'</td></tr>'}).join('')+'</tbody></table>';
+
+  var vc=document.getElementById('voice-channels');
+  if(!d.active_voice.length)vc.innerHTML='<div class=empty>Nobody in voice</div>';
+  else{var bc={};d.active_voice.forEach(function(v){if(!bc[v.channel_name])bc[v.channel_name]=[];bc[v.channel_name].push(v)});var h='';Object.keys(bc).sort().forEach(function(ch){var u=bc[ch];h+='<div style="margin-bottom:12px"><div style="color:#58a6ff;font-size:12px;font-weight:600">'+ch+' <span style="color:#8b949e;font-size:11px">('+u.length+')</span></div><div style="background:#161b22;border-radius:6px;padding:8px 12px">';u.forEach(function(x){h+='<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #0d1117"><span><span style="width:6px;height:6px;background:#238636;border-radius:50%;display:inline-block;margin-right:6px"></span>'+x.user_name+'</span></div>'});h+='</div></div>'});vc.innerHTML=h}
+
+  var mt=document.getElementById('meetings');
+  if(!d.upcoming_meetings||!d.upcoming_meetings.length)mt.innerHTML='<div class=empty>No meetings</div>';
+  else mt.innerHTML=d.upcoming_meetings.map(function(m){return '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid #21262d"><span><strong>'+m.name+'</strong>'+(m.status==='concluded'?' \u2705':'')+'</span><span>'+m.channel_name+'</span><span style="color:#484f58;font-size:11px">'+fmtTime(m.start_time)+' - '+fmtTime(m.end_time)+'</span></div>'}).join('')
+  }catch(e){document.getElementById('absences').textContent='Error: '+e.message}
+}
+
+async function loadAttendance(){
+  var r=await fetch(API+'/api/attendance'),d=await r.json();
+  document.getElementById('date').textContent=d.date;
+  var users=d.users,sessions=d.sessions;
+  if(!users.length){document.getElementById('attendance-users').innerHTML='<div class=empty>No voice activity today</div>';return}
+  var maxMin=Math.max.apply(null,users.map(function(u){return u.total_minutes||1}));
+  var html='<table><thead><tr><th>Name</th><th>Sessions</th><th>Voice Time</th><th>Activity</th></tr></thead><tbody>';
+  users.forEach(function(u){
+    var pct=Math.round((u.total_minutes/maxMin)*100);
+    html+='<tr style="cursor:pointer" data-uid="'+u.user_id+'" onclick="var e=document.getElementById(\'sess-\'+this.dataset.uid);if(e)e.classList.toggle(\'hidden\')"><td>'+u.user_name+(u.active_now?' <span class=badge style=background:#238636;color:#fff;font-size:10px>live</span>':'')+'</td><td>'+u.sessions+'</td><td>'+u.total_minutes+' min<div class=bar-wrap><div class=bar style=width:'+pct+'%></div></div></td><td style="color:#484f58;font-size:11px">'+new Date(u.first_join+'Z').toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})+(u.last_leave?' - '+new Date(u.last_leave+'Z').toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}):' - now')+'</td></tr>';
+    html+='<tr class="session-detail hidden" id="sess-'+u.user_id+'"><td colspan=4 style="background:#161b22;font-size:11px;color:#8b949e;padding:4px 12px">';
+    sessions.filter(function(s){return s.user_id===u.user_id}).forEach(function(s){
+      var meet=s.meeting_name?' <span style=color:#d29922;font-size:10px;background:#21262d;padding:1px 6px;border-radius:8px>'+s.meeting_name+'</span>':'';
+      html+='<div>'+s.channel_name+meet+' | '+new Date(s.join_time+'Z').toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})+(s.leave_time?' - '+new Date(s.leave_time+'Z').toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})+' ('+(s.duration_minutes||0)+' min)':' - active')+'</div>';
+    });
+    html+='</td></tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('attendance-users').innerHTML=html;
+}
+
+// Preload channels and members
+fetch(API+'/api/channels').then(function(r){return r.json()}).then(function(ch){document.getElementById('channel-list').innerHTML=ch.map(function(c){return '<option value="'+c+'">'}).join('')});
+fetch(API+'/api/members').then(function(r){return r.json()}).then(function(m){allMembers=m});
+
+function showScheduleForm(){
+  document.getElementById('schedule-form').style.display='block';
+  document.getElementById('s-name').value='';
+  document.querySelectorAll('#s-days input').forEach(function(c){c.checked=false});
+  document.getElementById('s-start-h').value='09';document.getElementById('s-start-m').value='00';
+  document.getElementById('s-end-h').value='10';document.getElementById('s-end-m').value='00';
+  document.getElementById('s-channel').value='';
+  scheduleEditId=null;
+  renderMemberChecklist([]);
+  document.getElementById('s-name').focus()
+}
+
+function renderMemberChecklist(selectedIds){
+  var el=document.getElementById('schedule-members-checklist');
+  el.innerHTML=allMembers.map(function(m){
+    var name=m.first_name+' '+(m.last_name||'');
+    var checked=selectedIds.indexOf(m.discord_id)>=0?' checked':'';
+    return '<label><input type=checkbox value="'+m.discord_id+'"'+checked+'> '+name+' <span style=color:#484f58;font-size:10px>('+(m.role||'')+')</span></label>';
+  }).join('')
+}
+
+async function loadSchedules(){
+  var r=await fetch(API+'/api/schedules'),d=await r.json();
+  if(!d.length){document.getElementById('schedules-list').innerHTML='<div class=empty>No schedules</div>';return}
+  document.getElementById('schedules-list').innerHTML='<table><thead><tr><th>Name</th><th>Day</th><th>Time</th><th>Channel</th><th>Assigned</th><th></th></tr></thead><tbody>'+d.map(function(s){var mc=(s.members||[]).length;var days=String(s.day_of_week ?? '').split(',').filter(Boolean).map(function(d){return dayNames[parseInt(d)].substring(0,3)}).join(', ');var memberNames=(s.members||[]).map(function(did){var m=allMembers.find(function(x){return x.discord_id===did});return m?m.first_name+' '+(m.last_name||''):did.substring(0,6)+'...'}).join(', ')||'-';return '<tr><td>'+s.name+'</td><td style=font-size:11px>'+days+'</td><td>'+s.start_time+' - '+s.end_time+'</td><td>'+s.channel_name+'</td><td style=color:#8b949e;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap>'+memberNames+'</td><td style=text-align:right><button onclick=editSchedule('+s.id+') style=background:transparent;border:none;color:#58a6ff;cursor:pointer;font-size:12px>Edit</button> <button onclick=deleteSchedule('+s.id+') style=background:transparent;border:none;color:#da3633;cursor:pointer;font-size:12px>Delete</button></td></tr>'}).join('')+'</tbody></table>';
+}
+
+async function editSchedule(id){
+  var r=await fetch(API+'/api/schedules/'+id),d=await r.json();
+  document.getElementById('schedule-form').style.display='block';
+  document.getElementById('s-name').value=d.name;
+  var days=String(d.day_of_week ?? '').split(',').filter(Boolean);
+  document.querySelectorAll('#s-days input').forEach(function(c){c.checked=days.indexOf(c.value)>=0});
+  var st=d.start_time.split(':');document.getElementById('s-start-h').value=st[0];document.getElementById('s-start-m').value=st[1]||'00';
+  var et=d.end_time.split(':');document.getElementById('s-end-h').value=et[0];document.getElementById('s-end-m').value=et[1]||'00';
+  document.getElementById('s-channel').value=d.channel_name||'';
+  scheduleEditId=id;
+  renderMemberChecklist(d.members||[]);
+}
+
+async function saveSchedule(){
+  var n=document.getElementById('s-name').value;if(!n)return;
+  var checks=document.querySelectorAll('#schedule-members-checklist input[type=checkbox]:checked');
+  var members=Array.from(checks).map(function(c){return c.value});
+  var days=Array.from(document.querySelectorAll('#s-days input:checked')).map(function(c){return c.value}).join(',');
+  if(!days) return;
+  var body={action:scheduleEditId?'update':'create',name:n,day:days,start:document.getElementById('s-start-h').value+':'+document.getElementById('s-start-m').value,end:document.getElementById('s-end-h').value+':'+document.getElementById('s-end-m').value,channel_name:document.getElementById('s-channel').value,members:members};
+  if(scheduleEditId) body.id=scheduleEditId;
+  await fetch(API+'/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  document.getElementById('schedule-form').style.display='none';loadSchedules();status(scheduleEditId?'Schedule updated':'Schedule added','#3fb950');scheduleEditId=null
+}
+async function deleteSchedule(id){if(!confirm('Delete?'))return;await fetch(API+'/api/schedules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:id})});loadSchedules();status('Deleted','#da3633')}
+function refreshChannels(){if(!confirm('Restarting the bot will close all active voice sessions and may cause data discrepancies if done during working hours.\n\nAre you sure you want to refresh?'))return;status('Restarting bot...','#d29922');fetch(API+'/api/channels/refresh',{method:'POST'});setTimeout(function(){location.reload()},5000)}
+
+async function loadHistory(){
+  var dateVal=document.getElementById('history-date').value||new Date().toISOString().split('T')[0];
+  document.getElementById('history-date').value=dateVal;
+  var r=await fetch(API+"/api/meetings-history?date="+dateVal),d=await r.json();
+  var el=document.getElementById("history-list");
+  if(!d.length){el.innerHTML="<div class=empty>No meetings concluded yet</div>";return}
+  el.innerHTML=d.map(function(m){
+    var tag=m.is_recurring?'<span style="background:#1f6feb;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px">Recurring</span>':'<span style="background:#238636;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:6px">One-time</span>';
+    var creator=m.created_by_name?'<span style="color:#484f58;font-size:10px">by '+m.created_by_name+'</span>':'';
+    var h='<div style="margin-bottom:16px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">';
+    h+='<div style="display:flex;justify-content:space-between"><span><strong>'+m.name+'</strong>'+tag+'</span><span style="color:#8b949e;font-size:12px">'+m.date+'</span></div>';
+    h+='<div style="color:#8b949e;font-size:11px;margin-bottom:4px">'+fmtTime(m.start_time)+' - '+fmtTime(m.end_time)+' | '+m.channel_name+' | '+m.total_attendees+' people | '+m.total_duration+' min'+creator+'</div>';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:11px">';
+    m.attendees.forEach(function(a){h+='<tr style="border-bottom:1px solid #21262d"><td>'+a.user_name+'</td><td style="text-align:right;color:#8b949e">'+(a.total_min||0)+' min</td></tr>'});
+    h+='</table>';
+    if(m.absent&&m.absent.length){h+='<div style="margin-top:8px;font-size:10px;color:#da3633">Absent: '+m.absent.join(', ')+'</div>';}
+    else{h+='<div style="margin-top:8px;font-size:10px;color:#3fb950">Nobody absent</div>';}
+    if(m.invited&&m.invited.length){h+='<div style="font-size:10px;color:#484f58">Invited: '+m.invited.join(', ')+'</div>';}
+    h+='</div>';
+    return h;
+  }).join("")
+}
+
+var savedTab=localStorage.getItem('activeTab')||'today';
+switchTab(savedTab);
+if(savedTab==='today') loadToday();
+setInterval(function(){
+  var tab=getActiveTab();
+  if(tab==='today'){loadToday().then(function(){status('Auto-updated','#484f58')})}
+  else if(tab==='attendance'){loadAttendance().then(function(){status('Auto-updated','#484f58')})}
+},10000);
+</script>
+</body>
+</html>

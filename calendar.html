@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calendar — YourOrg HR</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;padding:24px;max-width:800px;margin:0 auto}
+@media(max-width:600px){body{padding:12px}}
+h1{font-size:18px;color:#e6edf3;margin-bottom:4px}
+a{color:#58a6ff;text-decoration:none;font-size:13px}
+h2{font-size:14px;color:#7ee787;margin:16px 0 6px;padding-bottom:4px;border-bottom:1px solid #21262d}
+.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:12px}
+.calendar .day-header{text-align:center;font-size:10px;color:#8b949e;padding:4px}
+.calendar .day{aspect-ratio:1;background:#161b22;border:1px solid #21262d;border-radius:4px;padding:4px;font-size:11px;position:relative;min-height:60px}
+.calendar .day:hover{background:#1c2333}
+.calendar .day .num{font-weight:600;font-size:12px}
+.calendar .day.today{border-color:#58a6ff}
+.calendar .day.holiday{background:#2d1a1a;border-color:#da3633}
+.calendar .day.holiday .num{color:#da3633}
+.calendar .day .dots{display:flex;flex-wrap:wrap;gap:2px;margin-top:2px}
+.calendar .day .dot{width:6px;height:6px;border-radius:50%}
+.calendar .day .dot.meeting{background:#d29922}
+.calendar .day .dot.scheduled{background:#1f6feb}
+.calendar .day .dot.holiday-dot{background:#da3633}
+.day-label{font-size:9px;color:#8b949e;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;display:block}
+.day-label.meeting-label{color:#d29922}
+.day-label.schedule-label{color:#58a6ff}
+.nav{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.nav button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+.nav span{font-size:16px;font-weight:600;color:#e6edf3;min-width:150px;text-align:center}
+.btn{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+.btn-green{background:#238636;border:1px solid #2ea043;color:#fff}
+.btn-sm{padding:2px 8px;font-size:10px;margin-left:4px}
+#holiday-form{margin-top:12px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}
+#holiday-form input{margin-right:8px;padding:6px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;font-size:13px}
+.schedule-list{font-size:11px;color:#8b949e}
+.schedule-list div{padding:2px 0}
+.holiday-row{display:flex;align-items:center;gap:8px;padding:3px 0}
+.holiday-row span{flex:1}
+#day-detail{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;z-index:100;max-width:400px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+#day-detail h3{margin-bottom:8px;color:#e6edf3;font-size:15px}
+#day-detail .close{float:right;background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:18px}
+#day-detail .item{padding:6px 0;border-bottom:1px solid #21262d;font-size:12px}
+#day-detail .item .meta{color:#8b949e;font-size:10px}
+#overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:99}
+</style>
+</head>
+<body>
+
+<h1>Calendar</h1>
+<a href="/">← Back to Dashboard</a> | <a href="/api/logout" style="color:#da3633">Logout</a>
+
+<div class="nav">
+  <button onclick="prevMonth()">Prev</button>
+  <span id="month-label"></span>
+  <button onclick="nextMonth()">Next</button>
+</div>
+
+<div class="calendar" id="calendar"></div>
+
+<div style="margin-top:16px">
+  <button onclick="showHolidayForm()" class="btn-green" style="font-size:12px">+ Add Holiday</button>
+</div>
+
+<div id="holiday-form" style="display:none">
+  <input type="hidden" id="h-id">
+  <input type="date" id="h-date"> <input id="h-name" placeholder="Holiday name" style="width:200px">
+  <button onclick="saveHoliday()" class="btn-green">Save</button>
+  <button onclick="cancelHoliday()" class="btn">Cancel</button>
+</div>
+
+<div id="overlay" onclick="closeDetail()"></div>
+<div id="day-detail">
+  <button class="close" onclick="closeDetail()">&times;</button>
+  <h3 id="detail-title"></h3>
+  <div id="detail-content"></div>
+</div>
+
+<h2>Holidays</h2>
+<div id="holiday-list"></div>
+
+<h2>Recurring Schedules</h2>
+<div class="schedule-list" id="schedule-list"></div>
+
+<script>
+var API='';
+var currentYear,currentMonth;
+var calendarData=null;
+
+function prevMonth(){currentMonth--;if(currentMonth<1){currentMonth=12;currentYear--}loadCalendar()}
+function nextMonth(){currentMonth++;if(currentMonth>12){currentMonth=1;currentYear++}loadCalendar()}
+
+function showHolidayForm(){
+  document.getElementById('h-id').value='';
+  document.getElementById('h-date').value='';
+  document.getElementById('h-name').value='';
+  document.getElementById('holiday-form').style.display='block';
+}
+function cancelHoliday(){document.getElementById('holiday-form').style.display='none'}
+function editHoliday(id,date,name){
+  document.getElementById('h-id').value=id;
+  document.getElementById('h-date').value=date;
+  document.getElementById('h-name').value=name;
+  document.getElementById('holiday-form').style.display='block';
+}
+
+function closeDetail(){
+  document.getElementById('day-detail').style.display='none';
+  document.getElementById('overlay').style.display='none';
+}
+
+function fmtTime(utc){
+  try{var parts=utc.split(':');var h=parseInt(parts[0]),m=parseInt(parts[1]);h=(h+7)%24;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')}catch(e){return utc}
+}
+
+function showDayDetail(dateStr){
+  var title=document.getElementById('detail-title');
+  var content=document.getElementById('detail-content');
+  title.textContent=dateStr;
+  var html='';
+  
+  // Meetings on this date
+  var meetings=(calendarData.meetings||[]).filter(function(m){return m.date===dateStr});
+  if(meetings.length){
+    html+='<div style="color:#d29922;font-size:11px;margin-bottom:4px">Meetings</div>';
+    meetings.forEach(function(m){
+      html+='<div class=item><div>'+m.name+'</div><div class=meta>'+fmtTime(m.start_time)+' - '+fmtTime(m.end_time)+' | '+m.channel_name+'</div></div>';
+    });
+  }
+  
+  // Holiday check first
+  var holiday=(calendarData.holidays||[]).find(function(h){return h.date===dateStr});
+  var today=new Date().toISOString().split('T')[0];
+  
+  // Schedules only for future non-holiday dates
+  if(!holiday && dateStr >= today){
+    var d=new Date(dateStr+'T00:00:00');
+    var dow=d.getDay(); dow=dow===0?6:dow-1;
+    var scheds=(calendarData.schedules||[]).filter(function(s){
+      var days=(s.day_of_week||'0').split(',').map(Number);
+      return days.indexOf(dow)>=0;
+    });
+    if(scheds.length){
+      html+='<div style="color:#58a6ff;font-size:11px;margin:8px 0 4px">Recurring Schedules</div>';
+      scheds.forEach(function(s){
+        html+='<div class=item><div>'+s.name+'</div><div class=meta>'+s.start_time+' - '+s.end_time+' | '+s.channel_name+'</div></div>';
+      });
+    }
+  }
+  
+  // Holiday
+  if(holiday){
+    html+='<div style="color:#da3633;font-size:11px;margin:8px 0 4px">Holiday</div>';
+    html+='<div class=item><div>'+holiday.name+'</div></div>';
+  }
+  
+  // Link to attendance
+  html+='<div style="margin-top:12px"><a href=\"/attendance-history?date='+dateStr+'\" style=\"font-size:11px;color:#58a6ff\">View Attendance →</a></div>';
+  
+  if(!html) html='<div class=meta>Nothing scheduled</div>';
+  content.innerHTML=html;
+  document.getElementById('day-detail').style.display='block';
+  document.getElementById('overlay').style.display='block';
+}
+
+async function loadCalendar(){
+  var m=String(currentMonth).padStart(2,'0');
+  document.getElementById('month-label').textContent=currentYear+'-'+m;
+  
+  var r=await fetch(API+'/api/calendar?month='+currentYear+'-'+m),d=await r.json();
+  calendarData=d;
+  
+  var today=new Date().toISOString().split('T')[0];
+  var holidayDates={};
+  d.holidays.forEach(function(h){holidayDates[h.date]=h});
+  
+  var meetingDates={};
+  d.meetings.forEach(function(m){meetingDates[m.date]=meetingDates[m.date]||[];meetingDates[m.date].push(m)});
+  
+  // Calculate schedule days (only today forward)
+  var scheduleDays={};
+  d.schedules.forEach(function(s){
+    var days=(s.day_of_week||'0').split(',').map(Number);
+    for(var day=1;day<=d.days_in_month;day++){
+      var ds=String(day).padStart(2,'0');
+      var dateStr=currentYear+'-'+m+'-'+ds;
+      if(dateStr < today) continue;
+      var dt=new Date(currentYear,parseInt(m)-1,day);
+      var dow=dt.getDay();dow=dow===0?6:dow-1;
+      if(days.indexOf(dow)>=0){
+        scheduleDays[dateStr]=scheduleDays[dateStr]||[];
+        scheduleDays[dateStr].push(s);
+      }
+    }
+  });
+
+  var html='';
+  var dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  dayNames.forEach(function(n){html+='<div class=day-header>'+n+'</div>'});
+
+  for(var i=0;i<d.first_weekday;i++) html+='<div class=day></div>';
+
+  for(var day=1;day<=d.days_in_month;day++){
+    var ds=String(day).padStart(2,'0');
+    var dateStr=currentYear+'-'+m+'-'+ds;
+    var cls='day';
+    if(dateStr===today) cls+=' today';
+    
+    var dots='';
+    var label='';
+    
+    if(holidayDates[dateStr]){
+      cls+=' holiday';
+      dots+='<div class=dot holiday-dot></div>';
+      label='<div class=day-label>'+holidayDates[dateStr].name.substring(0,20)+(holidayDates[dateStr].name.length>20?'…':'')+'</div>';
+    }
+    if(meetingDates[dateStr]){
+      meetingDates[dateStr].forEach(function(m){dots+='<div class=dot meeting></div>';});
+      var ml=meetingDates[dateStr].length+' meeting'+(meetingDates[dateStr].length>1?'s':'');
+      label+='<div class="day-label meeting-label">'+ml+'</div>';
+    }
+    if(scheduleDays[dateStr] && !meetingDates[dateStr] && !holidayDates[dateStr]){
+      // Only show schedule dots if no actual meeting on that day
+      var uniq={};
+      scheduleDays[dateStr].forEach(function(s){uniq[s.name]=s});
+      var names=Object.keys(uniq);
+      names.forEach(function(){dots+='<div class=dot scheduled></div>';});
+      label+='<div class="day-label schedule-label">'+names.length+' scheduled</div>';
+    }
+    
+    html+='<div class="'+cls+'" data-date="'+dateStr+'"><div class=num>'+day+'</div><div class=dots>'+dots+'</div>'+label+'</div>';
+  }
+  
+  document.getElementById('calendar').innerHTML=html;
+  
+  document.querySelectorAll('.calendar .day').forEach(function(el){
+    el.addEventListener('click',function(){
+      var dt=this.dataset.date;
+      if(dt) showDayDetail(dt);
+    });
+    el.style.cursor='pointer';
+  });
+  
+  // Holiday list
+  var holHtml='';
+  d.holidays.forEach(function(h){
+    holHtml+='<div class=holiday-row><span>'+h.date+' — '+h.name+'</span><button class="btn btn-sm" onclick="editHoliday('+h.id+',\''+h.date+'\',\''+h.name.replace(/'/g,"\\'")+'\')">Edit</button> <button class="btn btn-sm" style="color:#da3633" onclick="deleteHoliday('+h.id+')">Delete</button></div>';
+  });
+  if(!d.holidays.length) holHtml='<div>No holidays this month</div>';
+  document.getElementById('holiday-list').innerHTML=holHtml;
+  
+  // Schedules list
+  var schedHtml='';
+  d.schedules.forEach(function(s){
+    var days=(s.day_of_week||'0').split(',').filter(Boolean).map(function(d){return['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][parseInt(d)]}).join(', ');
+    schedHtml+='<div>'+s.name+' | '+days+' | '+s.start_time+'-'+s.end_time+' | '+s.channel_name+'</div>';
+  });
+  if(!d.schedules.length) schedHtml='<div>No schedules</div>';
+  document.getElementById('schedule-list').innerHTML=schedHtml;
+}
+
+async function saveHoliday(){
+  var date=document.getElementById('h-date').value;
+  var name=document.getElementById('h-name').value;
+  if(!date||!name)return;
+  var editId=document.getElementById('h-id').value;
+  var body={action:editId?'update':'add',date:date,name:name};
+  if(editId) body.id=parseInt(editId);
+  await fetch(API+'/api/holidays',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  cancelHoliday();
+  loadCalendar();
+}
+async function deleteHoliday(id){
+  if(!confirm('Delete this holiday?'))return;
+  await fetch(API+'/api/holidays',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:id})});
+  loadCalendar();
+}
+
+var now=new Date();
+currentYear=now.getFullYear();currentMonth=now.getMonth()+1;
+loadCalendar();
+</script>
+</body>
+</html>

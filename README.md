@@ -56,7 +56,7 @@ Web dashboard             →  API reads DB          →  Display
 
 ## LLM Token Usage & Cost Estimation
 
-The bot makes two types of LLM calls. Both use DeepSeek by default (swap to any OpenAI-compatible API).
+The bot makes two types of LLM calls. Current default: **DeepSeek V4 Flash**. Swap to any OpenAI-compatible API.
 
 ### Per-call breakdown
 
@@ -76,23 +76,20 @@ The bot makes two types of LLM calls. Both use DeepSeek by default (swap to any 
 **Monthly absence parsing**:
 - 15 absence posts per day × 22 working days × 430 tokens = 141,900
 
-**Total**: ~221,100 tokens/month
+**Total**: ~221,100 tokens/month (~190,000 input, ~31,000 output)
 
-### Cost (DeepSeek pricing, as of 2024)
+### Estimated cost (DeepSeek V4 Flash, June 2026)
 
-| | Input ($0.14/1M) | Output ($0.28/1M) |
-|---|---|---|
-| Commands (79,200 tokens) | $0.011 | $0.022 |
-| Absences (141,900 tokens) | $0.020 | $0.040 |
-| **Monthly total** | **~$0.09** | |
+| | Cache hit ($0.0028/1M) | Cache miss ($0.14/1M) | Output ($0.28/1M) |
+|---|---|---|---|
+| Commands (66,000 in, 6,000 out) | $0.0002 | $0.009 | $0.002 |
+| Absences (120,000 in, 6,000 out) | $0.0003 | $0.017 | $0.002 |
+| **Monthly total (mostly cache miss)** | | **~$0.03** | |
+| **Monthly total (mostly cache hit)** | | **~$0.005** | |
 
-### Cost (OpenAI GPT-4o-mini)
+> ⚠️ **Disclaimer**: Token counts are estimates. Actual usage depends on message length and LLM behavior. Pricing varies by provider and changes over time. Always verify with your provider before deploying.
 
-| | Input ($0.15/1M) | Output ($0.60/1M) |
-|---|---|---|
-| **Monthly total** | | **~$0.20** |
-
-**Bottom line**: For a 50-person team, LLM costs are under $0.25/month. The bot token and VPS are the only real costs.
+**Bottom line**: LLM costs are negligible. The Discord bot token and a $5 VPS are the only real expenses.
 
 
 ## Setup

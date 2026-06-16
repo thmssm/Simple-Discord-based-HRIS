@@ -125,6 +125,9 @@ ollama pull qwen2.5:7b
 **Bottom line**: LLM costs are negligible. A $5 VPS is the only real expense. Discord bot tokens are free.
 
 
+> 🤖 **AI Agent?** Read [AGENTS.md](AGENTS.md) for step-by-step setup instructions designed for automated deployment.
+
+
 ## Setup
 
 ### Requirements

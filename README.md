@@ -89,6 +89,39 @@ The bot makes two types of LLM calls. Current default: **DeepSeek V4 Flash**. Sw
 
 > ⚠️ **Disclaimer**: Token counts are estimates. Actual usage depends on message length and LLM behavior. Pricing varies by provider and changes over time. Always verify with your provider before deploying.
 
+
+## Hosting Options
+
+### Option 1: VPS (recommended)
+
+A cheap VPS runs both the bot and dashboard. No GPU needed — LLM calls go to the API.
+
+| Team size | Spec | Provider | Monthly cost |
+|-----------|------|----------|-------------|
+| 1–25 users | 1 vCPU, 1 GB RAM, 25 GB SSD | Hetzner CX22, DigitalOcean, Linode | ~$5 |
+| 25–50 users | 2 vCPU, 2 GB RAM, 40 GB SSD | Hetzner CX32 | ~$10 |
+| 50–100 users | 2 vCPU, 4 GB RAM, 60 GB SSD | Hetzner CX42 | ~$20 |
+
+**What scales**: The bot uses async I/O — one small VPS handles 100+ Discord users easily. The bottleneck is LLM API latency, not CPU.
+
+**Setup time**: ~30 minutes. Ubuntu 22.04, Python 3.11, systemd, nginx, Cloudflare.
+
+### Option 2: Self-hosted (zero cost)
+
+Run everything on a spare machine or home server. Connect to a local LLM via Ollama.
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5:7b
+
+# Update bot.py:
+# model = "qwen2.5:7b"
+# api_url = "http://localhost:11434/v1/chat/completions"
+```
+
+**Requirements**: 8+ GB RAM for 7B quantized model. No GPU needed. Zero API costs.
+
+**Trade-off**: Local models are slower and less accurate for Indonesian. Fine for basic commands, but absence parsing may need tuning.
 **Bottom line**: LLM costs are negligible. The Discord bot token and a $5 VPS are the only real expenses.
 
 

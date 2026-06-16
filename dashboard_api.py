@@ -389,7 +389,7 @@ class API(http.server.BaseHTTPRequestHandler):
         
         # Verify Turnstile with Cloudflare (skip for localhost)
         if client_ip not in ("127.0.0.1", "::1", "localhost"):
-            secret = "REVOKED_CLOUDFLARE_TURNSTILE_SECRET"
+            secret = os.environ.get("TURNSTILE_SECRET_KEY", "")
             import urllib.request as ur, urllib.parse as up
             verify_data = up.urlencode({"secret": secret, "response": turnstile_token}).encode()
             verify_req = ur.Request("https://challenges.cloudflare.com/turnstile/v0/siteverify", data=verify_data)

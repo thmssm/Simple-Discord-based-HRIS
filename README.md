@@ -54,6 +54,47 @@ Web dashboard             →  API reads DB          →  Display
 - **DB**: SQLite with WAL mode. Handles concurrent reads from dashboard + writes from bot.
 - **Frontend**: Static HTML/CSS/JS. Dark theme. Works on mobile.
 
+## LLM Token Usage & Cost Estimation
+
+The bot makes two types of LLM calls. Both use DeepSeek by default (swap to any OpenAI-compatible API).
+
+### Per-call breakdown
+
+| Call | Trigger | Input tokens | Output tokens | Total |
+|------|---------|-------------|---------------|-------|
+| **Command parsing** | Every `@bot` command | ~600 | ~60 | ~660 |
+| **Absence parsing** | Every message in absence channel | ~400 | ~30 | ~430 |
+
+### Real-world example: 50-employee company
+
+**Monthly command usage** (typical):
+- 20 meeting creations × 660 tokens = 13,200
+- 50 meeting edits/cancels × 660 tokens = 33,000
+- 30 meeting list queries × 660 tokens = 19,800
+- 20 absence queries × 660 tokens = 13,200
+
+**Monthly absence parsing**:
+- 15 absence posts per day × 22 working days × 430 tokens = 141,900
+
+**Total**: ~221,100 tokens/month
+
+### Cost (DeepSeek pricing, as of 2024)
+
+| | Input ($0.14/1M) | Output ($0.28/1M) |
+|---|---|---|
+| Commands (79,200 tokens) | $0.011 | $0.022 |
+| Absences (141,900 tokens) | $0.020 | $0.040 |
+| **Monthly total** | **~$0.09** | |
+
+### Cost (OpenAI GPT-4o-mini)
+
+| | Input ($0.15/1M) | Output ($0.60/1M) |
+|---|---|---|
+| **Monthly total** | | **~$0.20** |
+
+**Bottom line**: For a 50-person team, LLM costs are under $0.25/month. The bot token and VPS are the only real costs.
+
+
 ## Setup
 
 ### Requirements
@@ -173,12 +214,9 @@ db.commit()
 
 ## Roadmap
 
-- **Weekly / monthly HR reports** — auto-generated summary of attendance, absences, late arrivals, and meeting participation
-- **Export to spreadsheet** — download attendance data, absence logs, and meeting history as CSV or Excel
-- **Multi-server support** — one dashboard for multiple Discord servers (agencies, holding companies)
-- **Slack integration** — same bot, Slack workspace (for hybrid teams)
+- **Weekly / monthly HR reports** — auto-generated attendance summary
+- **Export to spreadsheet** — download attendance data as CSV or Excel
 - **Leave balance tracking** — annual leave, sick leave quotas per employee
-- **Email notifications** — daily digest of who was absent or late
 
 
 ## License

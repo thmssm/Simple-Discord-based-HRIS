@@ -121,7 +121,7 @@ ollama pull qwen2.5:7b
 
 **Requirements**: 8+ GB RAM for 7B quantized model. No GPU needed. Zero API costs.
 
-**Trade-off**: Local models are slower and less accurate for Indonesian. Fine for basic commands, but absence parsing may need tuning.
+**Trade-off**: Local models may be less accurate for non-English languages (e.g. Indonesian). Fine for basic commands, but absence parsing may need tuning.
 **Bottom line**: LLM costs are negligible. The Discord bot token and a $5 VPS are the only real expenses.
 
 

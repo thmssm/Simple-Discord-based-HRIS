@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simple Discord HRIS Bot — Discord attendance, absence, and voice tracker."""
+"""YourOrg HR Bot — Discord attendance, absence, and voice tracker."""
 
 import os
 import sqlite3
@@ -10,6 +10,7 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 
 import discord
+import asyncio
 
 # ── Config ──────────────────────────────────────────────
 TOKEN = os.environ["HRBOT_TOKEN"]
@@ -351,8 +352,9 @@ class HRBot(discord.Client):
         super().__init__(intents=intents)
 
     async def on_ready(self):
-        log.info(f"Logged in as {self.user} (ID: {self.user.id})")
+        log.info(f"ONLINE: Logged in as {self.user} (ID: {self.user.id})")
         print(f"✅ {self.user} is online")
+        self._heartbeat_task = asyncio.create_task(self._heartbeat())
         
         # Build members map for name resolution
         db_init = get_db()
@@ -422,6 +424,19 @@ class HRBot(discord.Client):
                 db2.execute("INSERT OR IGNORE INTO channels (channel_id, channel_name) VALUES (?,?)", (str(ch.id), ch.name[:80]))
         db2.commit()
         db2.close()
+
+    async def _heartbeat(self):
+        """Write heartbeat to DB every 30 seconds."""
+        import sqlite3 as _sq
+        while True:
+            try:
+                db = _sq.connect(DB_PATH)
+                db.execute("INSERT INTO bot_heartbeat (timestamp, status) VALUES (datetime('now'), 'alive')")
+                db.commit()
+                db.close()
+            except Exception as e:
+                log.error(f"Heartbeat write failed: {e}")
+            await asyncio.sleep(30)
 
     async def on_message(self, message):
         # Ignore self
@@ -497,16 +512,17 @@ class HRBot(discord.Client):
             parsed = parse_command(text, message.author.name)
         except Exception as e:
             log.error(f"LLM parse error: {e}")
-            await message.reply("⚠️ Gagal memahami perintah. Coba lagi.")
+            log.info(f"REPLY to {message.author.name}: parse error"); await message.reply("⚠️ Gagal memahami perintah. Coba lagi.")
             return
 
         intent = parsed.get("intent", "ignore")
+        log.info(f"ACTION: {intent} by {message.author.name}")
         
         if intent == "create_meeting":
             await self.handle_create_meeting(message, parsed)
         elif intent == "edit_meeting":
             if not parsed.get("meeting_id") or not parsed.get("changes"):
-                await message.reply("❓ Mau ubah meeting yang mana dan apa yang diubah? Contoh: `ubah meeting 2 ke jam 20-21` atau `pindah meeting 2 ke #UI/UX`. Ketik `meetings today` buat lihat daftar meeting hari ini.")
+                log.info(f"REPLY to {message.author.name}: edit clarification"); await message.reply("❓ Mau ubah meeting yang mana dan apa yang diubah? Contoh: `ubah meeting 2 ke jam 20-21` atau `pindah meeting 2 ke #UI/UX`. Ketik `meetings today` buat lihat daftar meeting hari ini.")
             else:
                 await self.handle_edit_meeting(message, parsed)
         elif intent == "list_meetings":
@@ -516,7 +532,7 @@ class HRBot(discord.Client):
         elif intent == "ignore":
             pass  # Silent
         else:
-            await message.reply("❓ Perintah tidak dikenali. Coba: `@bot buat meeting ...`, `@bot meetings today`, `@bot absent today`")
+            log.info(f"REPLY to {message.author.name}: unknown intent={intent}"); await message.reply("❓ Perintah tidak dikenali. Coba: `@bot buat meeting ...`, `@bot meetings today`, `@bot absent today`")
 
     # ── Command Handlers ─────────────────────────────
     async def handle_create_meeting(self, message, parsed):
@@ -831,4 +847,7 @@ class HRBot(discord.Client):
 if __name__ == "__main__":
     init_db()
     bot = HRBot()
-    bot.run(TOKEN)
+    try:
+        bot.run(TOKEN)
+    finally:
+        log.info("OFFLINE: Bot process ending")

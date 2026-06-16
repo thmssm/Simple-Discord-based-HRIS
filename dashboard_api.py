@@ -25,6 +25,7 @@ def _create_session(username):
     token = secrets.token_hex(32)
     expires = (datetime.utcnow() + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
     db = sqlite3.connect(DB)
+    db.execute('PRAGMA busy_timeout=5000')
     db.execute("INSERT INTO sessions (username, token, expires_at) VALUES (?,?,?)", (username, token, expires))
     db.commit()
     db.close()
@@ -34,18 +35,21 @@ def _get_session(token):
     if not token:
         return None
     db = sqlite3.connect(DB)
+    db.execute('PRAGMA busy_timeout=5000')
     row = db.execute("SELECT username FROM sessions WHERE token=? AND expires_at > datetime('now')", (token,)).fetchone()
     db.close()
     return row[0] if row else None
 
 def _delete_session(token):
     db = sqlite3.connect(DB)
+    db.execute('PRAGMA busy_timeout=5000')
     db.execute("DELETE FROM sessions WHERE token=?", (token,))
     db.commit()
     db.close()
 
 def query(sql, params=()):
     db = sqlite3.connect(DB)
+    db.execute('PRAGMA busy_timeout=5000')
     db.row_factory = sqlite3.Row
     rows = db.execute(sql, params).fetchall()
     db.close()
@@ -54,6 +58,9 @@ def query(sql, params=()):
 class API(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         # Block everything except login unless authenticated
+        if self.path == "/api/health":
+            self.serve_health()
+            return
         if self.path != "/login" and not self.path.startswith("/login?") and self.path != "/api/login":
             if not self._get_session_cookie():
                 self._redirect_to_login()
@@ -165,6 +172,8 @@ class API(http.server.BaseHTTPRequestHandler):
             existing_names = {e["name"] for e in existing}
             schedules = query("SELECT * FROM meeting_schedules WHERE ',' || day_of_week || ',' LIKE '%,' || ? || ',%'", (today_num,))
             db2 = sqlite3.connect(DB)
+            db2.execute('PRAGMA busy_timeout=5000')
+            db2.row_factory = sqlite3.Row
             for s in schedules:
                 if s["name"] not in existing_names:
                     db2.execute(
@@ -224,6 +233,32 @@ class API(http.server.BaseHTTPRequestHandler):
         self.send_response(302)
         self.send_header("Location", "/login")
         self.end_headers()
+
+    def serve_health(self):
+        """Health check — returns bot status based on heartbeat."""
+        import subprocess, sqlite3
+        db = sqlite3.connect(DB)
+        db.execute('PRAGMA busy_timeout=5000')
+        row = db.execute("SELECT timestamp FROM bot_heartbeat ORDER BY id DESC LIMIT 1").fetchone()
+        db.close()
+        if row:
+            last = row[0]
+            age_sec = (datetime.utcnow() - datetime.strptime(last, "%Y-%m-%d %H:%M:%S")).total_seconds()
+            bot_alive = age_sec < 90
+        else:
+            age_sec = None
+            bot_alive = False
+        
+        # Check systemd service status
+        svc = subprocess.run(["systemctl", "is-active", "hr-bot.service"], capture_output=True, text=True)
+        svc_status = svc.stdout.strip()
+        
+        self.send_json({
+            "bot": "alive" if bot_alive else "dead",
+            "last_heartbeat_sec_ago": age_sec,
+            "service": svc_status,
+            "dashboard": "alive"
+        })
 
     def serve_html(self):
         html = open("./dashboard.html").read()
@@ -319,6 +354,7 @@ class API(http.server.BaseHTTPRequestHandler):
         # Cleanup expired sessions and old login attempts periodically
         client_ip = self.client_address[0]
         db = sqlite3.connect(DB)
+        db.execute('PRAGMA busy_timeout=5000')
         db.execute("DELETE FROM sessions WHERE expires_at < datetime('now')")
         db.execute("DELETE FROM login_attempts WHERE attempt_time < datetime('now','-1 hour')")
         db.commit()
@@ -353,7 +389,7 @@ class API(http.server.BaseHTTPRequestHandler):
         
         # Verify Turnstile with Cloudflare (skip for localhost)
         if client_ip not in ("127.0.0.1", "::1", "localhost"):
-            secret = os.environ.get("TURNSTILE_SECRET_KEY", "")
+            secret = "REVOKED_CLOUDFLARE_TURNSTILE_SECRET"
             import urllib.request as ur, urllib.parse as up
             verify_data = up.urlencode({"secret": secret, "response": turnstile_token}).encode()
             verify_req = ur.Request("https://challenges.cloudflare.com/turnstile/v0/siteverify", data=verify_data)
@@ -401,6 +437,7 @@ class API(http.server.BaseHTTPRequestHandler):
         body = j.loads(self.rfile.read(length))
         action = body.get("action", "")
         db = sqlite3.connect(DB)
+        db.execute('PRAGMA busy_timeout=5000')
         if action == "create":
             db.execute(
                 "INSERT INTO meeting_schedules (name, day_of_week, start_time, end_time, channel_id, channel_name) VALUES (?,?,?,?,?,?)",
@@ -444,6 +481,7 @@ class API(http.server.BaseHTTPRequestHandler):
         rows = query("SELECT id, name, day_of_week, start_time, end_time, channel_id, channel_name FROM meeting_schedules ORDER BY day_of_week, start_time")
         # Attach assigned members to each schedule
         db = sqlite3.connect(DB)
+        db.execute('PRAGMA busy_timeout=5000')
         db.row_factory = sqlite3.Row
         for s in rows:
             members = db.execute(
@@ -461,6 +499,7 @@ class API(http.server.BaseHTTPRequestHandler):
             if rows:
                 row = rows[0]
                 db = sqlite3.connect(DB)
+                db.execute('PRAGMA busy_timeout=5000')
                 db.row_factory = sqlite3.Row
                 members = db.execute(
                     "SELECT discord_id FROM schedule_members WHERE schedule_id=?", (row["id"],)
@@ -529,6 +568,7 @@ class API(http.server.BaseHTTPRequestHandler):
         body = j.loads(self.rfile.read(length))
         action = body.get("action", "")
         db = sqlite3.connect(DB)
+        db.execute('PRAGMA busy_timeout=5000')
         if action == "add":
             db.execute("INSERT OR IGNORE INTO holidays (date, name) VALUES (?,?)",
                        (body["date"], body["name"][:100]))
@@ -836,6 +876,7 @@ class API(http.server.BaseHTTPRequestHandler):
         body = j.loads(self.rfile.read(length))
         action = body.get("action", "")
         db = sqlite3.connect(DB)
+        db.execute('PRAGMA busy_timeout=5000')
         if action == "add":
             did = body.get("discord_id","") or None
             db.execute(

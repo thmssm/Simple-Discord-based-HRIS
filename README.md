@@ -261,6 +261,31 @@ db.commit()
 - **Natural language over slash commands**: Users type like they talk. LLM figures out the intent. No `/create_meeting --time 14:00` memorization.
 - **Bot replies in-channel**: Transparent. Everyone sees the meeting being created. No secret DM threads.
 
+## Tuning the LLM Absence Parser
+
+The bot uses an LLM to parse messages in your absence channel — it figures out who's reporting sick, taking leave, or just chatting. **The default prompt is trained on an Indonesian studio's communication style.** Your team will talk differently.
+
+### Why tune it
+
+Without tuning, you may get:
+- **False positives**: casual chat or replies to others mistakenly recorded as absences
+- **False negatives**: someone saying `"can't work today, migraines"` not being captured
+
+### Tuning process
+
+1. **Let it run for 3–5 working days** to collect real messages from your team
+2. **Audit the logs** — query the `message_log` table:
+   ```sql
+   SELECT user_name, content, llm_intent, llm_absence_type FROM message_log ORDER BY id DESC;
+   ```
+3. **Find false positives** — messages marked `report_absence` that should be `ignore` (e.g. `"is John okay?"`)
+4. **Find false negatives** — messages marked `ignore` that should be `report_absence` (e.g. `"sick today, can't come in"`)
+5. **Update the prompt** — open `bot.py`, find `parse_absence()`, and add your team's real examples to both the "SELF-REPORT" and "COMMENTARY/REPLY/INFO" sections
+6. **Test with the CLI** — `python3 parse_absence.py "your test message"`
+7. **Restart the bot** — `sudo systemctl restart hr-bot`
+
+> 💡 See [AGENTS.md](AGENTS.md) for detailed guidance on this process, including the SQL queries and CLI tool usage.
+
 ## Roadmap
 
 - **Weekly / monthly HR reports** — auto-generated attendance summary

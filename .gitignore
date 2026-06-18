@@ -6,3 +6,5 @@ __pycache__/
 .venv/
 *.pyc
 bot.log
+bot.py.bak
+fix_admin.py

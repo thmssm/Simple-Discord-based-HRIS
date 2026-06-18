@@ -139,7 +139,7 @@ function showDayDetail(dateStr){
     var d=new Date(dateStr+'T00:00:00');
     var dow=d.getDay(); dow=dow===0?6:dow-1;
     var scheds=(calendarData.schedules||[]).filter(function(s){
-      var days=(s.day_of_week||'0').split(',').map(Number);
+      var days=String(s.day_of_week||'0').split(',').map(Number);
       return days.indexOf(dow)>=0;
     });
     if(scheds.length){
@@ -169,7 +169,9 @@ async function loadCalendar(){
   var m=String(currentMonth).padStart(2,'0');
   document.getElementById('month-label').textContent=currentYear+'-'+m;
   
-  var r=await fetch(API+'/api/calendar?month='+currentYear+'-'+m),d=await r.json();
+  var r=await fetch(API+'/api/calendar?month='+currentYear+'-'+m);
+  if(!r.ok){window.location='/login';return}
+  var d=await r.json();
   calendarData=d;
   
   var today=new Date().toISOString().split('T')[0];
@@ -182,7 +184,7 @@ async function loadCalendar(){
   // Calculate schedule days (only today forward)
   var scheduleDays={};
   d.schedules.forEach(function(s){
-    var days=(s.day_of_week||'0').split(',').map(Number);
+    var days=String(s.day_of_week||'0').split(',').map(Number);
     for(var day=1;day<=d.days_in_month;day++){
       var ds=String(day).padStart(2,'0');
       var dateStr=currentYear+'-'+m+'-'+ds;
@@ -254,7 +256,7 @@ async function loadCalendar(){
   // Schedules list
   var schedHtml='';
   d.schedules.forEach(function(s){
-    var days=(s.day_of_week||'0').split(',').filter(Boolean).map(function(d){return['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][parseInt(d)]}).join(', ');
+    var days=String(s.day_of_week||'0').split(',').filter(Boolean).map(function(d){return['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][parseInt(d)]}).join(', ');
     schedHtml+='<div>'+s.name+' | '+days+' | '+s.start_time+'-'+s.end_time+' | '+s.channel_name+'</div>';
   });
   if(!d.schedules.length) schedHtml='<div>No schedules</div>';

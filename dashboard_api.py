@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""HR Dashboard API — your-domain.com"""
+"""HR Dashboard API — Discord HR Bot"""
 import http.server, sqlite3, json, os, hashlib, secrets
+from datetime import timezone, timedelta
 from datetime import date, datetime, timedelta
 
 DB = "./hr.db"
 PORT = 8081
+
+WIB = timezone(timedelta(hours=7))
+
+def wib_today():
+    return datetime.now(WIB).strftime("%Y-%m-%d")
 
 # === AUTH HELPERS ===
 
@@ -61,7 +67,7 @@ class API(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/health":
             self.serve_health()
             return
-        if self.path != "/login" and not self.path.startswith("/login?") and self.path != "/api/login":
+        if self.path != "/login" and not self.path.startswith("/login?") and self.path != "/api/login" and not self.path.startswith("/calendar") and not self.path.startswith("/api/calendar") and self.path != "/attendance-history" and self.path != "/absences":
             if not self._get_session_cookie():
                 self._redirect_to_login()
                 return
@@ -107,7 +113,7 @@ class API(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def serve_attendance(self):
-        today = date.today().isoformat()
+        today = wib_today()
         # Per-user summary for today
         users = query("""
             SELECT v.user_name, v.user_id,
@@ -135,7 +141,7 @@ class API(http.server.BaseHTTPRequestHandler):
             s["meeting_name"] = None
             s["meeting_id"] = None
             jt = s["join_time"]
-            lt = s["leave_time"] or "9999-99-99 99:99"
+            lt = s["leave_time"] or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             for m in meetings:
                 ms = m["date"] + " " + m["start_time"]
                 me = m["date"] + " " + m["end_time"]
@@ -155,10 +161,22 @@ class API(http.server.BaseHTTPRequestHandler):
             if u["user_id"] in members_map:
                 u["user_name"] = members_map[u["user_id"]]
         sessions = sessions_raw
+        # Add elapsed time of active sessions to total_minutes
+        from datetime import datetime as dt, timedelta
+        now_utc = dt.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        for u in users:
+            if u["active_now"] > 0:
+                active_sessions = [s for s in sessions if s.get("user_id") == u["user_id"] and s.get("active")]
+                for s in active_sessions:
+                    try:
+                        elapsed = int((dt.fromisoformat(now_utc) - dt.fromisoformat(s["join_time"])).total_seconds() // 60)
+                        u["total_minutes"] = int(u.get("total_minutes", 0)) + elapsed
+                    except:
+                        pass
         self.send_json({"date": today, "users": users, "sessions": sessions})
 
     def serve_today(self):
-        today = date.today().isoformat()
+        today = wib_today()
         # Name resolution map
         members_map = {m["discord_id"]: (m["first_name"] + " " + (m["last_name"] or "")).strip()
                        for m in query("SELECT discord_id, first_name, last_name FROM members", ())}
@@ -167,7 +185,7 @@ class API(http.server.BaseHTTPRequestHandler):
         # Auto-generate today's meetings from recurring schedules
         holiday_today = query("SELECT 1 FROM holidays WHERE date=?", (today,))
         if not holiday_today:
-            today_num = date.today().weekday()
+            today_num = datetime.now(WIB).weekday()
             existing = query("SELECT name FROM meetings WHERE date=?", (today,))
             existing_names = {e["name"] for e in existing}
             schedules = query("SELECT * FROM meeting_schedules WHERE ',' || day_of_week || ',' LIKE '%,' || ? || ',%'", (today_num,))
@@ -175,13 +193,34 @@ class API(http.server.BaseHTTPRequestHandler):
             db2.execute('PRAGMA busy_timeout=5000')
             db2.row_factory = sqlite3.Row
             for s in schedules:
+                new_start = f"time('{s["start_time"]}', '-7 hours')"
+                new_end = f"time('{s["end_time"]}', '-7 hours')"
                 if s["name"] not in existing_names:
                     db2.execute(
-                        "INSERT INTO meetings (name, date, start_time, end_time, channel_id, channel_name) VALUES (?,?,time(?,?),time(?,?),?,?)",
-                        (s["name"], today, s["start_time"], "-7 hours", s["end_time"], "-7 hours", s["channel_id"], s["channel_name"]),
+                        f"INSERT INTO meetings (name, date, start_time, end_time, channel_id, channel_name) VALUES (?,?,{new_start},{new_end},?,?)",
+                        (s["name"], today, s["channel_id"], s["channel_name"]),
                     )
                     meeting_id = db2.execute("SELECT last_insert_rowid()").fetchone()[0]
-                    # Auto-create meeting_invites for assigned schedule members
+                else:
+                    # Sync stale meeting times/channel with schedule
+                    stale = db2.execute(
+                        f"SELECT id FROM meetings WHERE date=? AND name=? AND (start_time != {new_start} OR end_time != {new_end} OR channel_id != ?)",
+                        (today, s["name"], str(s["channel_id"]) if s["channel_id"] else "")
+                    ).fetchone()
+                    if stale:
+                        db2.execute(
+                            f"UPDATE meetings SET start_time={new_start}, end_time={new_end}, channel_id=?, channel_name=? WHERE id=?",
+                            (s["channel_id"], s["channel_name"], stale["id"]),
+                        )
+                        meeting_id = stale["id"]
+                    else:
+                        meeting_id = db2.execute(
+                            "SELECT id FROM meetings WHERE date=? AND name=?", (today, s["name"])
+                        ).fetchone()["id"]
+                # Sync meeting_invites with schedule_members
+                if meeting_id:
+                    # Remove old invites, re-add current schedule members
+                    db2.execute("DELETE FROM meeting_invites WHERE meeting_id=?", (meeting_id,))
                     assigned = db2.execute(
                         "SELECT discord_id FROM schedule_members WHERE schedule_id=?", (s["id"],)
                     ).fetchall()
@@ -196,7 +235,7 @@ class API(http.server.BaseHTTPRequestHandler):
         data = {
             "date": today,
             "absences": query(
-                "SELECT user_name, absence_type, note, original_message FROM absences WHERE date=? ORDER BY id", (today,)
+                "SELECT user_name, absence_type, note, original_message, date as start_date, end_date FROM absences WHERE (end_date IS NULL AND date = ?) OR (end_date IS NOT NULL AND date <= ? AND end_date >= ?) ORDER BY date, id", (today, today, today)
             ),
             "active_voice": query(
                 "SELECT user_id, user_name, channel_name, join_time FROM voice_sessions WHERE date(join_time)=? AND leave_time IS NULL ORDER BY channel_name, join_time", (today,)
@@ -206,7 +245,7 @@ class API(http.server.BaseHTTPRequestHandler):
             ),
             "upcoming_meetings": query(
                 "SELECT id, name, start_time, end_time, channel_name, "
-                "CASE WHEN datetime(date || ' ' || end_time, '+7 hours') < datetime('now') THEN 'concluded' ELSE 'upcoming' END as status "
+                "CASE WHEN datetime(date || ' ' || end_time) < datetime('now') THEN 'concluded' ELSE 'upcoming' END as status "
                 "FROM meetings WHERE date=? AND cancelled=0 ORDER BY start_time", (today,)
             ),
             "stats": {
@@ -243,7 +282,7 @@ class API(http.server.BaseHTTPRequestHandler):
         db.close()
         if row:
             last = row[0]
-            age_sec = (datetime.utcnow() - datetime.strptime(last, "%Y-%m-%d %H:%M:%S")).total_seconds()
+            age_sec = (datetime.now(timezone.utc).replace(tzinfo=None) - datetime.strptime(last, "%Y-%m-%d %H:%M:%S")).total_seconds()
             bot_alive = age_sec < 90
         else:
             age_sec = None
@@ -524,7 +563,7 @@ class API(http.server.BaseHTTPRequestHandler):
         from urllib.parse import urlparse, parse_qs
         from calendar import monthrange
         qs = parse_qs(urlparse(self.path).query)
-        month_str = qs.get("month", [None])[0] or date.today().strftime("%Y-%m")
+        month_str = qs.get("month", [None])[0] or datetime.now(WIB).strftime("%Y-%m")
         year, month = int(month_str[:4]), int(month_str[5:7])
         _, days_in_month = monthrange(year, month)
         
@@ -584,7 +623,7 @@ class API(http.server.BaseHTTPRequestHandler):
     def serve_message_log(self):
         from urllib.parse import urlparse, parse_qs
         qs = parse_qs(urlparse(self.path).query)
-        req_date = qs.get("date", [None])[0] or date.today().isoformat()
+        req_date = qs.get("date", [None])[0] or wib_today()
         
         members_map = {m["discord_id"]: (m["first_name"] + " " + (m["last_name"] or "")).strip()
                        for m in query("SELECT discord_id, first_name, last_name FROM members", ())}
@@ -647,7 +686,7 @@ class API(http.server.BaseHTTPRequestHandler):
     def serve_attendance_history(self):
         from urllib.parse import urlparse, parse_qs
         qs = parse_qs(urlparse(self.path).query)
-        req_date = qs.get("date", [None])[0] or date.today().isoformat()
+        req_date = qs.get("date", [None])[0] or wib_today()
         
         members_map = {m["discord_id"]: (m["first_name"] + " " + (m["last_name"] or "")).strip()
                        for m in query("SELECT discord_id, first_name, last_name FROM members WHERE active=1", ())}
@@ -660,16 +699,19 @@ class API(http.server.BaseHTTPRequestHandler):
         # Check if weekend (Saturday=5, Sunday=6)
         req_date_obj = date.fromisoformat(req_date)
         is_weekend = req_date_obj.weekday() >= 5
-        is_future = req_date_obj > date.today()
+        is_future = req_date_obj > datetime.now(WIB).date()
         
         # Future dates: return summary only, no member list
         if is_future:
             self.send_json({"future": True, "date": req_date, "message": "This date has not occurred yet"})
             return
         
-        # Get all absences for this date
+        # Get all absences active on this date (including multi-day)
         absences = {a["user_id"]: {"type": a["absence_type"], "note": a["note"]}
-                    for a in query("SELECT user_id, user_name, absence_type, note FROM absences WHERE date=?", (req_date,))}
+                    for a in query("""SELECT user_id, user_name, absence_type, note FROM absences 
+                                   WHERE (end_date IS NULL AND date = ?) 
+                                      OR (end_date IS NOT NULL AND date <= ? AND end_date >= ?)""", 
+                                   (req_date, req_date, req_date))}
         
         # Get all voice sessions for this date
         sessions = query("""
@@ -724,6 +766,16 @@ class API(http.server.BaseHTTPRequestHandler):
                 } for s in us]
                 
                 total = sum(s["duration_minutes"] or 0 for s in us)
+                # Add elapsed time for any active sessions
+                for s in us:
+                    if s["active"] and not s["leave_time"]:
+                        try:
+                            from datetime import datetime as dt, timedelta
+                            now_utc = dt.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                            elapsed = int((dt.fromisoformat(now_utc) - dt.fromisoformat(s["join_time"])).total_seconds() // 60)
+                            total += elapsed
+                        except:
+                            pass
                 entry["total_minutes"] = total
                 entry["first_join"] = us[0]["join_time"]
                 
@@ -744,12 +796,15 @@ class API(http.server.BaseHTTPRequestHandler):
                 entry["status"] = "weekend"
                 entry["status_label"] = "Weekend"
             elif entry["sessions"]:
-                # Extract hour from first join
+                # Extract hour+minute from first join
                 try:
                     time_part = us[0]["join_time"].split(" ")[1]
                     first_hour = int(time_part.split(":")[0])
+                    first_min = int(time_part.split(":")[1])
                     local_hour = (first_hour + 7) % 24
-                    if local_hour >= 10:
+                    local_min = first_min
+                    # Late threshold: 10:15 WIB (15-minute grace period)
+                    if local_hour > 10 or (local_hour == 10 and local_min > 15):
                         entry["status"] = "late"
                         entry["status_label"] = "Late"
                     else:
@@ -766,14 +821,15 @@ class API(http.server.BaseHTTPRequestHandler):
     def serve_meetings_history(self):
         from urllib.parse import urlparse, parse_qs
         qs = parse_qs(urlparse(self.path).query)
-        req_date = qs.get("date", [None])[0] or date.today().isoformat()
+        req_date = qs.get("date", [None])[0] or wib_today()
         # Get concluded meetings for the requested date
         meetings = query("""
             SELECT m.id, m.name, m.date, m.start_time, m.end_time, m.channel_name,
                    m.created_by, m.created_by_name,
-                   datetime('now') > datetime(m.date || ' ' || m.end_time) as concluded
+                   1 as concluded
             FROM meetings m
             WHERE m.cancelled = 0 AND m.date = ?
+              AND datetime('now') > datetime(m.date || ' ' || m.end_time)
             ORDER BY m.start_time
             LIMIT 50
         """, (req_date,))
@@ -782,6 +838,7 @@ class API(http.server.BaseHTTPRequestHandler):
         # Name resolution
         members_map = {m["discord_id"]: (m["first_name"] + " " + (m["last_name"] or "")).strip()
                        for m in query("SELECT discord_id, first_name, last_name FROM members", ())}
+        from datetime import datetime as dt, timedelta
         for m in meetings:
             # Fetch ALL voice sessions in the meeting channel on that date
             # that overlap with the meeting window (with generous molor buffer)
@@ -798,6 +855,8 @@ class API(http.server.BaseHTTPRequestHandler):
             # Calculate actual overlap duration with "molor" end
             meet_start = m["date"] + " " + m["start_time"]
             meet_end_scheduled = m["date"] + " " + m["end_time"]
+            # Cap individual duration at scheduled end + 15 min grace
+            cap_end = (dt.fromisoformat(meet_end_scheduled) + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
             
             # Find actual meeting end: latest leave time in the session group
             # that started within 2h of scheduled end (captures molor)
@@ -807,13 +866,12 @@ class API(http.server.BaseHTTPRequestHandler):
                     actual_end = s["leave_time"]
             
             # Calculate per-user overlap minutes
-            from datetime import datetime as dt
             attendee_minutes = {}
             for s in sessions:
                 sess_start = s["join_time"]
-                sess_end = s["leave_time"] or now_str()
+                sess_end = s["leave_time"] or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                 overlap_start = max(sess_start, meet_start)
-                overlap_end = min(sess_end, actual_end)
+                overlap_end = min(sess_end, actual_end, cap_end)
                 if overlap_start < overlap_end:
                     try:
                         start_dt = dt.fromisoformat(overlap_start)
@@ -822,7 +880,15 @@ class API(http.server.BaseHTTPRequestHandler):
                     except:
                         overlap_min = s["duration_minutes"] or 0
                     if s["user_id"] not in attendee_minutes:
-                        attendee_minutes[s["user_id"]] = {"user_name": members_map.get(s["user_id"], s["user_name"]), "total_min": 0}
+                        attendee_minutes[s["user_id"]] = {
+                            "user_name": members_map.get(s["user_id"], s["user_name"]),
+                            "total_min": 0,
+                            "first_join": overlap_start  # first join within meeting window
+                        }
+                    else:
+                        # Keep earliest join time
+                        if overlap_start < attendee_minutes[s["user_id"]]["first_join"]:
+                            attendee_minutes[s["user_id"]]["first_join"] = overlap_start
                     attendee_minutes[s["user_id"]]["total_min"] += overlap_min
             
             # Build sorted attendees list
@@ -845,7 +911,12 @@ class API(http.server.BaseHTTPRequestHandler):
                 "total_attendees": len(attendees),
                 "total_duration": total_duration,
                 "attendees": [{"user_name": a["user_name"], 
-                               "total_min": a["total_min"]} for a in attendees],
+                               "total_min": a["total_min"],
+                               "first_join": a.get("first_join"),
+                               "status": ("late" if a.get("first_join") and 
+                                (dt.fromisoformat(a["first_join"]) - dt.fromisoformat(meet_start)).total_seconds() > 600
+                                else "on_time")
+                              } for a in attendees],
                 "invited": [],
                 "absent": [],
             })
@@ -855,18 +926,29 @@ class API(http.server.BaseHTTPRequestHandler):
             )
             if invites:
                 attended_ids = {a.get("user_id", "") for a in attendees}
+                # Fetch absences for this meeting date to distinguish "absent" vs "on leave"
+                absences_today = {a["user_id"]: a["absence_type"] for a in query("""
+                    SELECT user_id, absence_type FROM absences 
+                    WHERE (end_date IS NULL AND date = ?) 
+                       OR (end_date IS NOT NULL AND date <= ? AND end_date >= ?)""",
+                    (m["date"], m["date"], m["date"]))}
                 invited_list = []
                 absent_list = []
+                on_leave_list = []
                 for inv in invites:
                     name = members_map.get(inv["user_id"], inv["user_name"])
                     if inv["user_id"] in attended_ids:
                         invited_list.append(name)
+                    elif inv["user_id"] in absences_today:
+                        on_leave_list.append({"name": name, "type": absences_today[inv["user_id"]]})
                     else:
                         absent_list.append(name)
                 if invited_list:
                     result[-1]["invited"] = invited_list
                 if absent_list:
                     result[-1]["absent"] = absent_list
+                if on_leave_list:
+                    result[-1]["on_leave"] = on_leave_list
         
         self.send_json(result)
 

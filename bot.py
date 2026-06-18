@@ -6,7 +6,8 @@ import sqlite3
 import json
 import logging
 import re
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import discord
@@ -17,8 +18,8 @@ TOKEN = os.environ["HRBOT_TOKEN"]
 DEEPSEEK_KEY = os.environ["DEEPSEEK_API_KEY"]
 DB_PATH = Path("./hr.db")
 LOG_PATH = Path("./bot.log")
-ABSENSI_CHANNEL_ID = 1037917883285655654
-CMD_CHANNEL_IDS = {1516027352797151302, 1516408275871076352}  # @bot commands only here
+ABSENSI_CHANNEL_ID = 0  # Set to your Discord absensi channel ID
+CMD_CHANNEL_IDS = set()  # Set to your Discord command channel ID(s)
 
 # ── Logging ─────────────────────────────────────────────
 logging.basicConfig(
@@ -132,11 +133,16 @@ def is_whitelisted(user_id):
     db.close()
     return row is not None
 
+WIB = timezone(timedelta(hours=7))
+
 def now_str():
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+def utc_str():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 def today_str():
-    return date.today().isoformat()
+    return datetime.now(WIB).strftime("%Y-%m-%d")
 
 DAY_NAMES_ID = {
     "senin": 0, "selasa": 1, "rabu": 2, "kamis": 3,
@@ -181,7 +187,7 @@ def local_to_utc(time_str):
 def parse_command(text, user_name):
     import urllib.request
 
-    today = date.today()
+    today = datetime.now(WIB).date()
     day_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
     today_name = day_names[today.weekday()]
 
@@ -255,27 +261,73 @@ Return JSON ONLY:"""
     return json.loads(content)
 
 # ── Absence Parser ──────────────────────────────────────
-def parse_absence(text, user_name):
-    """Parse free-text absence message via DeepSeek."""
+def parse_absence(text, user_name, reply_to_text=None, reply_to_user=None):
+    """Parse free-text absence message via DeepSeek.
+
+    Args:
+        text: The message content to parse
+        user_name: Name of the person who sent the message
+        reply_to_text: If this message is a reply, the text of the original message
+        reply_to_user: If this message is a reply, the name of the original sender
+    """
     import urllib.request
     
-    prompt = f"""You parse employee absence messages. Return ONLY JSON.
+    wib_today = datetime.now(WIB).strftime("%Y-%m-%d")
+    
+    reply_context = ""
+    if reply_to_text and reply_to_user:
+        reply_context = f"\nIMPORTANT CONTEXT: This message is a REPLY to {reply_to_user}'s message: \"{reply_to_text}\"\nThis means the user is RESPONDING to someone else, NOT reporting their OWN absence."
+    elif reply_to_text:
+        reply_context = f"\nIMPORTANT CONTEXT: This message is a REPLY to: \"{reply_to_text}\"\nThis means the user is RESPONDING to someone else, NOT reporting their OWN absence."
+    
+    prompt = f"""You parse employee absence messages. Return ONLY JSON. Today is {wib_today} (GMT+7/WIB).
 
-Extract: {{intent, absence_type, date, note}}
+Extract: {{intent, absence_type, date, end_date, duration_days, note}}
 - intent: "report_absence" or "ignore"
 - absence_type: "day_off", "sick", "afk", "paid_leave", or "other"
-- date: YYYY-MM-DD (default: today)
-- note: brief reason
+- date: YYYY-MM-DD (start date, default: today)
+- end_date: YYYY-MM-DD (last day of absence, null if single day only)
+- duration_days: integer (number of days, 1 if single day)
+- note: brief reason in Bahasa Indonesia
+
+CRITICAL RULES for distinguishing SELF-REPORT vs REPLY/COMMENTARY/INFO:
+- If the message is a REPLY to someone else's message, it is almost certainly a COMMENT or QUESTION about that person's absence, NOT a self-report. Return intent: "ignore".
+- If the message asks a question about someone else's condition ("sakit apa?", "kecelakaan kenapa?", "sudah baikan?"), it is clearly NOT a self-report. Return intent: "ignore".
+- If the message contains reactions, comments, or jokes about another person's absence, it is NOT a self-report. Return intent: "ignore".
+- Only return "report_absence" if the user is clearly reporting THEIR OWN absence/sick leave/day off.
+- "izin" followed by a reason for themselves = self-report.
+- "iya" + reason = could be self-report if they're confirming their own absence.
+- General chat, complaints, information sharing about environment/conditions = "ignore". This includes messages about power outages, internet problems, traffic, weather, or any situation that explains why someone is slow to respond — these are NOT absence reports.
+- Offering suggestions or solutions to someone else ("coba lapor lewat aplikasi PLN") = "ignore". The user is helping, not reporting absence.
+- Messages that describe a problem ("mati lampu", "jalanan macet", "ada banjir") without explicitly saying they are taking leave = "ignore". These are contextual updates, not absence reports.
+
+Examples of SELF-REPORT (intent: report_absence):
+- "cuti tgl 17-18" -> date: 2026-06-17, end_date: 2026-06-18, duration_days: 2
+- "cuti sampai rabu" (posted Monday) -> date: 2026-06-15, end_date: 2026-06-17, duration_days: 3
+- "sakit hari ini" -> date: today, end_date: null, duration_days: 1
+- "cuti sampai senin depan" (posted Wednesday Jun 17) -> date: 2026-06-17, end_date: 2026-06-22, duration_days: 6
+- "pagi, hari ini izin cuti" -> report_absence
+- "Selamat pagi, hari ini saya izin sakit kepala" -> report_absence
+
+Examples of COMMENTARY/REPLY/INFO (intent: ignore):
+- "sakit apa? kecelakaan kenapa?" -> ignore (asking about someone else)
+- "semoga cepet sembuh" -> ignore (well-wishes to someone else)
+- "wah parah, hati-hati" -> ignore (comment on someone's post)
+- "saya juga pernah gitu" -> ignore (sharing experience, not reporting)
+- "di rumah sakit? rawat inap?" -> ignore (asking another person)
+- "sudah baikan?" -> ignore (checking on someone)
+- "Pagi, mati lampu di sini, dari pagi belum ada tanda2 menyala" -> ignore (environmental info, NOT absence report — telling colleagues they have no power, not taking leave)
+- "Coba lapor lewat aplikasi PLN Mobile 😁" -> ignore (offering solution/reply, NOT reporting own absence)
 
 User: {user_name}
-Message: "{text}"
+Message: "{text}"{reply_context}
 
 Return JSON:"""
 
     data = json.dumps({
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 150, "temperature": 0
+        "max_tokens": 250, "temperature": 0
     }).encode()
     req = urllib.request.Request(
         "https://api.deepseek.com/v1/chat/completions",
@@ -363,7 +415,7 @@ class HRBot(discord.Client):
         db_init.close()
         
         # Auto-generate today's meetings from recurring schedules
-        today = date.today()
+        today = datetime.now(WIB).date()
         # Skip if today is a holiday
         import sqlite3 as _sq
         _db = _sq.connect(DB_PATH)
@@ -457,8 +509,22 @@ class HRBot(discord.Client):
             
             real_name = get_real_name(user_id)
             log.info(f"ABSENSI from {real_name}: {text[:100]}")
+            
+            # Detect if this message is a REPLY to another message (Discord reply chain)
+            reply_to_text = None
+            reply_to_user = None
+            if message.reference and message.reference.message_id:
+                try:
+                    ref_msg = await message.channel.fetch_message(message.reference.message_id)
+                    if ref_msg and ref_msg.author.id != self.user.id:
+                        reply_to_text = ref_msg.content[:200] if ref_msg.content else ""
+                        reply_to_user = get_real_name(str(ref_msg.author.id))
+                        log.info(f"ABSENSI REPLY: {real_name} replying to {reply_to_user}: original=\"{reply_to_text[:80]}\"")
+                except Exception as e:
+                    log.warning(f"Reply fetch failed: {e}")
+            
             try:
-                parsed = parse_absence(text, real_name)
+                parsed = parse_absence(text, real_name, reply_to_text=reply_to_text, reply_to_user=reply_to_user)
             except Exception as e:
                 log.error(f"Absensi parse error: {e}")
                 return
@@ -472,19 +538,35 @@ class HRBot(discord.Client):
             
             if parsed.get("intent") == "report_absence":
                 date_str = parsed.get("date", today_str())
+                new_msg = text[:1000]
+                new_type = parsed.get("absence_type","other")
+                new_note = parsed.get("note","")[:200]
+                # Find existing absence for same user+date
                 existing = db.execute(
-                    "SELECT id FROM absences WHERE user_id=? AND date=?",
+                    "SELECT id, original_message, absence_type FROM absences WHERE user_id=? AND date=?",
                     (user_id, date_str)
                 ).fetchone()
                 if existing:
-                    db.execute(
-                        "UPDATE absences SET absence_type=?, note=?, created_at=? WHERE id=?",
-                        (parsed.get("absence_type","other"), parsed.get("note","")[:200], now_str(), existing["id"]),
-                    )
+                    old_msg = existing["original_message"] or ""
+                    sim = SequenceMatcher(None, old_msg.lower(), new_msg.lower()).ratio()
+                    if sim > 0.6 or new_type == existing["absence_type"]:
+                        # Same context — merge into one entry
+                        end_date_str = parsed.get("end_date")
+                        db.execute(
+                            "UPDATE absences SET absence_type=?, end_date=?, note=?, created_at=? WHERE id=?",
+                            (new_type, end_date_str, new_note, now_str(), existing["id"]),
+                        )
+                    else:
+                        # Genuinely different report — keep both
+                        db.execute(
+                            "INSERT INTO absences (user_id, user_name, absence_type, date, note, original_message) VALUES (?,?,?,?,?,?)",
+                            (user_id, real_name, new_type, date_str, new_note, new_msg),
+                        )
                 else:
+                    end_date_str = parsed.get("end_date")
                     db.execute(
-                        "INSERT INTO absences (user_id, user_name, absence_type, date, note, original_message) VALUES (?,?,?,?,?,?)",
-                        (user_id, real_name, parsed.get("absence_type","other"), date_str, parsed.get("note","")[:200], text[:1000]),
+                        "INSERT INTO absences (user_id, user_name, absence_type, date, end_date, note, original_message) VALUES (?,?,?,?,?,?,?)",
+                        (user_id, real_name, new_type, date_str, end_date_str, new_note, new_msg),
                     )
             db.commit()
             db.close()
@@ -538,7 +620,7 @@ class HRBot(discord.Client):
     async def handle_create_meeting(self, message, parsed):
         """Create a one-time meeting with natural language parsing."""
         # Resolve date (safe)
-        today = date.today()
+        today = datetime.now(WIB).date()
         day_text = _safe_str(parsed.get("day_text"), "hari ini")
         meeting_date = resolve_day(day_text, today)
         if not meeting_date:
@@ -697,7 +779,7 @@ class HRBot(discord.Client):
             await message.reply("❌ Tidak bisa melihat absen untuk masa depan.")
             db.close(); return
         if period == "yesterday":
-            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            yesterday = (datetime.now(WIB).date() - timedelta(days=1)).isoformat()
             rows = db.execute(
                 "SELECT user_name, absence_type, note FROM absences WHERE date=?",
                 (yesterday,),
@@ -760,7 +842,7 @@ class HRBot(discord.Client):
             await message.reply("❌ Tidak bisa melihat absen untuk masa depan.")
             db.close(); return
         if period == "yesterday":
-            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            yesterday = (datetime.now(WIB).date() - timedelta(days=1)).isoformat()
             rows = db.execute(
                 "SELECT user_name, absence_type, note FROM absences WHERE date=?",
                 (yesterday,),
@@ -834,8 +916,8 @@ class HRBot(discord.Client):
             (str(member.id),),
         ).fetchone()
         if row:
-            join_time = datetime.fromisoformat(row["join_time"])
-            duration = int((datetime.utcnow() - join_time).total_seconds() // 60)
+            join_time = datetime.fromisoformat(row["join_time"]).replace(tzinfo=timezone.utc)
+            duration = int((datetime.now(timezone.utc) - join_time).total_seconds() // 60)
             db.execute(
                 "UPDATE voice_sessions SET leave_time=?, duration_minutes=? WHERE id=?",
                 (now_str(), duration, row["id"]),

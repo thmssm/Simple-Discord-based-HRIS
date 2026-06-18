@@ -130,6 +130,7 @@ function switchTab(tab){
   document.getElementById('tab-schedules').classList.toggle('hidden',tab!=='schedules');
   document.getElementById('tab-history').classList.toggle('hidden',tab!=='history');
   localStorage.setItem('activeTab',tab);
+  if(tab==='today') loadToday();
   if(tab==='attendance') loadAttendance();
   if(tab==='schedules') loadSchedules();
   if(tab==='history') loadHistory();
@@ -143,7 +144,7 @@ async function loadToday(){
   document.getElementById('date').textContent=d.date;
   var a=document.getElementById('absences');
   if(!d.absences.length)a.innerHTML='<div class=empty>Everyone present</div>';
-  else a.innerHTML='<table><thead><tr><th>Name</th><th>Status</th><th>Details</th></tr></thead><tbody>'+d.absences.map(function(x){return '<tr><td>'+x.user_name+'</td><td><span class="badge badge-'+(x.absence_type==='day_off'?'Off':x.absence_type)+'">'+(labels[x.absence_type]||x.absence_type)+'</span></td><td>'+x.note.substring(0,80)+'</td></tr>'}).join('')+'</tbody></table>';
+  else a.innerHTML='<table><thead><tr><th>Name</th><th>Status</th><th>Range</th><th>Details</th></tr></thead><tbody>'+d.absences.map(function(x){var r=x.start_date?x.start_date.substring(5):'';if(x.end_date)r+=' - '+x.end_date.substring(5);return '<tr><td>'+x.user_name+'</td><td><span class="badge badge-'+(x.absence_type==='day_off'?'Off':x.absence_type)+'">'+(labels[x.absence_type]||x.absence_type)+'</span></td><td style="font-size:11px;color:#8b949e">'+r+'</td><td>'+x.note.substring(0,60)+'</td></tr>'}).join('')+'</tbody></table>';
 
   var vc=document.getElementById('voice-channels');
   if(!d.active_voice.length)vc.innerHTML='<div class=empty>Nobody in voice</div>';
@@ -250,7 +251,8 @@ async function loadHistory(){
     m.attendees.forEach(function(a){h+='<tr style="border-bottom:1px solid #21262d"><td>'+a.user_name+'</td><td style="text-align:right;color:#8b949e">'+(a.total_min||0)+' min</td></tr>'});
     h+='</table>';
     if(m.absent&&m.absent.length){h+='<div style="margin-top:8px;font-size:10px;color:#da3633">Absent: '+m.absent.join(', ')+'</div>';}
-    else{h+='<div style="margin-top:8px;font-size:10px;color:#3fb950">Nobody absent</div>';}
+    if(m.on_leave&&m.on_leave.length){h+='<div style="margin-top:4px;font-size:10px;color:#58a6ff">On Leave: '+m.on_leave.map(function(l){return l.name+' ('+l.type+')'}).join(', ')+'</div>';}
+    if((!m.absent||!m.absent.length)&&(!m.on_leave||!m.on_leave.length)){h+='<div style="margin-top:8px;font-size:10px;color:#3fb950">Nobody absent</div>';}
     if(m.invited&&m.invited.length){h+='<div style="font-size:10px;color:#484f58">Invited: '+m.invited.join(', ')+'</div>';}
     h+='</div>';
     return h;

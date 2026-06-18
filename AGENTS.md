@@ -186,7 +186,32 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d dashboard.yourdomain.com
 ```
 
-## Step 11: Verify
+## Step 11: (Optional) Set up the Windows Monitor
+
+The repo includes `monitor-hr-bot.bat` — a local Windows tool for real-time bot monitoring:
+
+1. Open `monitor-hr-bot.bat` in a text editor
+2. Edit the configuration at the top:
+
+```batch
+set VPS_HOST=ubuntu@your-server-ip
+set VPS_BOT_DIR=.
+set DASHBOARD_URL=https://dashboard.yourdomain.com
+```
+
+3. Save the file (keep CRLF line endings)
+4. Double-click `monitor-hr-bot.bat` to run
+
+**Requirements:** Windows 10+, OpenSSH Client (install via Settings > Apps > Optional Features), curl.
+
+**Modes:**
+- **Dashboard View [1]** — creates an SSH tunnel to the API, polls every 10s, shows colored dashboard
+- **Bot Log Tail [2]** — SSH tail of bot.log in real-time
+- **Journal Tail [3]** — systemd journal for service-level logs
+- **SQL Query [4]** — quick-select or custom SQL against the live DB
+- **Health Monitor [5]** — polls `/api/health` every 30s, green/red status
+
+## Step 12: Verify
 
 Check all of these before telling the user it's done:
 

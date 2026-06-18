@@ -42,6 +42,18 @@ The bot also understands **conversations** in your absence channel — it can te
 - **Member admin** — add/edit members with nickname field for easy bot commands
 - **Login & security** — Cloudflare Turnstile, rate limiting, session-based auth, all write endpoints protected
 
+### Local Monitor (Windows)
+
+Run `monitor-hr-bot.bat` on your local Windows machine to monitor bot activity in real-time:
+
+- **Dashboard View** — SSH tunnel to the API, polls every 10s, shows active voice, meetings, absences with a structured display
+- **Bot Log Tail** — real-time SSH tail of bot.log (every message, join/leave, error)
+- **Journal Tail** — systemd service logs (startup, crashes, restarts)
+- **SQL Query Mode** — quick-select or custom SQL queries against the live DB via SSH
+- **Health Monitor** — polls `/api/health` every 30s, color-coded bot/dashboard status
+
+> This is a local convenience tool — it connects to your VPS via SSH. Requires OpenSSH and curl on Windows.
+
 ## How it works
 
 ```

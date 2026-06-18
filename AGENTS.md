@@ -231,8 +231,39 @@ Check all of these before telling the user it's done:
 6. Dashboard loads at `https://dashboard.yourdomain.com`
 7. Login works with the admin credentials created in Step 7
 
-## Pitfalls
+## Post-Setup: Tune the LLM prompt to your team's culture
 
+The absence parser is powered by an LLM prompt in `bot.py` → `parse_absence()`. By default, it includes example phrases from an Indonesian studio. **Your team will say things differently.** After running for a few working days, you'll want to tune this prompt.
+
+### Why this matters
+
+The LLM is good at understanding natural language, but it needs to know **what your team considers an "absence" versus "just chatting"**. In the original studio, messages like:
+
+- `"Pagi, mati lampu di sini"` (= *"Morning, power is out here"*) → should be `ignore` (just informing, not taking leave)
+- `"Coba lapor lewat aplikasi PLN"` (= *"Try reporting via the PLN app"*) → should be `ignore` (reply/advice to someone else)
+- `"sakit apa? kecelakaan kenapa?"` (= *"what sickness? what accident?"*) → should be `ignore` (asking about someone else)
+
+Your team's culture around absence reporting may differ. Some teams are very formal (`"I request permission for sick leave"`), others are casual (`"can't make it today"`). The prompt needs to reflect that.
+
+### Tuning process
+
+1. **Let it run for 3–5 working days.** Collect real messages from your team in the message_log table.
+2. **Check the logs** — query messages the LLM parsed:
+
+```sql
+SELECT user_name, content, llm_intent, llm_absence_type, parsed_note
+FROM message_log ORDER BY id DESC;
+```
+
+3. **Find false positives** — messages marked `report_absence` that should have been `ignore` (e.g. someone asking about a colleague's health, or general chat).
+4. **Find false negatives** — messages marked `ignore` that should have been `report_absence` (e.g. someone saying `"can't work today, migraines"` that the bot didn't catch).
+5. **Add your team's real examples** to the prompt in `parse_absence()` — both examples of what IS an absence and what IS NOT. The more examples you add from actual team messages, the better the LLM gets.
+6. **Test with the CLI tool** — `python3 parse_absence.py "your test message here"` — to verify the prompt handles new phrases before deploying.
+7. **After tuning, restart the bot** — `sudo systemctl restart hr-bot`
+
+> 💡 **Tip**: Keep updating the prompt as your team develops new habits. A prompt that was tuned after week 1 will be significantly more accurate than the default.
+
+## Pitfalls
 - **Indentation errors**: After editing `.py` files, verify with `python3 -c "compile(open('bot.py').read(),'bot.py','exec')"` before restarting
 - **SQLite locking**: The DB uses WAL mode. Both processes (bot + dashboard) write concurrently. Do NOT use SQLite CLI while services are running without `.timeout 5000`
 - **Cloudflare proxy**: If using Cloudflare, enable "Development Mode" during setup to avoid challenge loops

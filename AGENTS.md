@@ -4,6 +4,14 @@
 
 Simple Discord HRIS — a Discord bot + web dashboard for attendance tracking. You are helping someone set this up. Follow these steps in order. Do NOT skip verification steps.
 
+> 🇮🇩 **Language note**: This project uses some Indonesian terms in its code and configuration:
+> - `absensi` = attendance / absence check-in
+> - `izin sakit` = sick leave permission
+> - `cuti` = day off / leave
+> - `besok` / `hari ini` / `kemarin` = tomorrow / today / yesterday
+> 
+> These are meaningful to the bot's LLM parser — users can type in either Indonesian or English and it will understand both.
+
 ## Step 1: Prerequisites check
 
 Ask the user for:
@@ -218,7 +226,7 @@ Check all of these before telling the user it's done:
 1. `sudo systemctl status hr-bot hr-dashboard` — both `active`
 2. `curl -s http://localhost:8081/` — returns 302 redirect to login
 3. Bot appears online in Discord
-4. Send a message in your absensi channel (e.g. "izin sakit") — bot logs it silently
+4. Send a message in your absensi channel (e.g. `"izin sakit"` = sick leave, `"pagi, hari ini izin cuti"` = *"morning, today I'm taking leave"*) — bot logs it silently without responding
 5. Send `@bot meetings today` in the command channel — bot replies
 6. Dashboard loads at `https://dashboard.yourdomain.com`
 7. Login works with the admin credentials created in Step 7
@@ -230,4 +238,4 @@ Check all of these before telling the user it's done:
 - **Cloudflare proxy**: If using Cloudflare, enable "Development Mode" during setup to avoid challenge loops
 - **Voice tracking**: Requires `voice_states` intent enabled in Discord Developer Portal, plus `PyNaCl` (`pip install PyNaCl`)
 - **Bot not responding**: Check `CMD_CHANNEL_IDS` — bot only responds in whitelisted channels. Check `message_content` intent is enabled.
-- **False absence reports**: If someone asks "sakit apa?" in your absensi channel as a reply, the bot should ignore it. If it doesn't, the reply context isn't being detected — check that the bot has `message_content` intent enabled and message cache is working.
+- **False absence reports**: If someone asks `"sakit apa?"` (= *"what sickness?"*) in your absensi channel as a reply, the bot should ignore it. If it doesn't, the reply context isn't being detected — check that the bot has `message_content` intent enabled and message cache is working.

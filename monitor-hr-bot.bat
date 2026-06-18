@@ -13,6 +13,9 @@ chcp 65001 >nul 2>&1
 
 :: ══════════════════════════════════════════════════════════
 ::  CONFIGURATION — EDIT THESE BEFORE RUNNING
+::  VPS_HOST = your server SSH address (e.g. ubuntu@192.168.1.100)
+::  VPS_BOT_DIR = path to your bot installation on the server
+::  DASHBOARD_URL = your dashboard domain or IP
 :: ══════════════════════════════════════════════════════════
 set VPS_HOST=ubuntu@your-server-ip
 set VPS_BOT_DIR=.

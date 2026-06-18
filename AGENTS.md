@@ -7,8 +7,8 @@ Simple Discord HRIS — a Discord bot + web dashboard for attendance tracking. Y
 ## Step 1: Prerequisites check
 
 Ask the user for:
-1. **Discord bot token** — from https://discord.com/developers/applications (needs: message_content, members, voice_states intents)
-2. **DeepSeek API key** — from https://platform.deepseek.com (or any OpenAI-compatible key)
+1. **Discord bot token** — from https://discord.com/developers/applications (needs: `message_content`, `members`, `voice_states` intents)
+2. **LLM API key** — DeepSeek, OpenAI, or any OpenAI-compatible provider
 3. **VPS or server** — any Ubuntu 22.04+ machine with public IP and domain pointed to it
 4. **Cloudflare Turnstile keys** — free from Cloudflare dashboard (site key + secret key). Skip if login protection not needed.
 
@@ -21,46 +21,41 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install discord.py
 ```
 
-## Step 3: Edit bot config
+## Step 3: Configure bot.py
 
-Open `bot.py` and find the configuration block near the top. Change these:
+Open `bot.py` and find the configuration block near the top (~line 20). Change these:
 
 ```python
-# Line ~18-22 — REQUIRED CHANGES
-CMD_CHANNEL_IDS = {REPLACE_WITH_YOUR_CHANNEL_ID}  # Whitelisted command channels
-ABSENCE_CHANNEL_ID = REPLACE_WITH_YOUR_CHANNEL_ID  # Channel for absence messages
-
-# Line ~90 — Timezone offset from UTC (7 = GMT+7, 8 = GMT+8, etc.)
-TZ_OFFSET = 7  # Change to your timezone
-
-# Line ~85 — Meeting late threshold (military time in your timezone)
-LATE_HOUR = 10  # 10 AM local time
+# REQUIRED: Set your Discord channel IDs
+ABSENSI_CHANNEL_ID = 123456789012345678  # Channel where users post absences
+CMD_CHANNEL_IDS = {123456789012345678}    # Channel(s) where @bot commands are allowed
 ```
 
-## Step 4: Configure LLM provider
+## Step 4: (Optional) Change LLM provider
 
-In `bot.py`, lines ~225-245, change the API endpoint and model:
+The bot uses DeepSeek by default. To use another provider, edit `parse_absence()` and `parse_command()` functions in `bot.py`. Change the model name and API endpoint:
 
 ```python
-# Default: DeepSeek
-api_url = "https://api.deepseek.com/v1/chat/completions"
-model = "deepseek-chat"
-
-# For OpenAI:
-# api_url = "https://api.openai.com/v1/chat/completions"
-# model = "gpt-4o-mini"
-
-# For Ollama (local):
-# api_url = "http://localhost:11434/v1/chat/completions"
-# model = "qwen2.5:7b"
+# In both parse_absence() and parse_command():
+data = json.dumps({
+    "model": "gpt-4o-mini",        # Change model
+    ...
+})
+req = urllib.request.Request(
+    "https://api.openai.com/v1/chat/completions",  # Change endpoint
+    ...
+)
 ```
 
 ## Step 5: Create .env file
 
 ```bash
 cat > .env << 'EOF'
-DISCORD_BOT_TOKEN=the...
-Add additional environment variables as needed.
+DISCORD_BOT_TOKEN=your_discord_bot_token
+DEEPSEEK_API_KEY=your_deepseek_api_key
+TURNSTILE_SECRET_KEY=your_turnstile_secret
+EOF
+```
 
 ## Step 6: Initialize the database
 
@@ -98,13 +93,36 @@ db.close()
 
 ## Step 8: Configure Turnstile (login protection)
 
-If using login protection, open `dashboard_api.py` and set the Turnstile keys:
+Add to your `.env`:
+```
+TURNSTILE_SECRET_KEY=your_turnstile_secret_key
+```
 
-```python
-# Environment variable (set in .env):
-TURNSTILE_SECRET_KEY=your...
+Also update the Turnstile **site key** in `login.html`:
+```html
+<div class="cf-turnstile" data-sitekey="0x4AAAAAA...your_site_key"></div>
+```
+The site key is public (embedded in the page) — the secret goes in `.env`.
 
-### Deploy
+## Step 9: Add team members
+
+Members need to exist in the `members` table for the bot to track them:
+
+```bash
+python3 -c "
+import sqlite3
+db = sqlite3.connect('hr.db')
+# Add a member
+db.execute('INSERT INTO members (discord_id, discord_name, first_name, active) VALUES (?,?,?,1)',
+    ('123456789012345678', 'user#1234', 'John'))
+db.commit()
+print('Member added')
+"
+```
+
+Or add members through the web dashboard admin panel after login.
+
+## Step 10: Deploy
 
 ```bash
 # Create systemd service for bot
@@ -147,7 +165,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now hr-bot hr-dashboard
 ```
 
-### Nginx
+### Nginx (optional — for domain-based access)
 
 ```bash
 sudo apt-get install -y nginx
@@ -168,21 +186,23 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d dashboard.yourdomain.com
 ```
 
-## Step 9: Verify
+## Step 11: Verify
 
 Check all of these before telling the user it's done:
 
-1. `sudo systemctl status hr-bot hr-dashboard` — both active
-2. `curl -s http://localhost:8081/` — returns 302 redirect
+1. `sudo systemctl status hr-bot hr-dashboard` — both `active`
+2. `curl -s http://localhost:8081/` — returns 302 redirect to login
 3. Bot appears online in Discord
-4. Send `@bot help` in the whitelisted channel — bot replies
-5. Dashboard loads at `https://dashboard.yourdomain.com`
-6. Login works with the admin credentials created in Step 7
+4. Send a message in your absensi channel (e.g. "izin sakit") — bot logs it silently
+5. Send `@bot meetings today` in the command channel — bot replies
+6. Dashboard loads at `https://dashboard.yourdomain.com`
+7. Login works with the admin credentials created in Step 7
 
 ## Pitfalls
 
-- **Indentation errors**: If you edit `bot.py` or `dashboard_api.py`, verify with `python3 -c "compile(open('bot.py').read(),'bot.py','exec')"` before restarting
+- **Indentation errors**: After editing `.py` files, verify with `python3 -c "compile(open('bot.py').read(),'bot.py','exec')"` before restarting
 - **SQLite locking**: The DB uses WAL mode. Both processes (bot + dashboard) write concurrently. Do NOT use SQLite CLI while services are running without `.timeout 5000`
 - **Cloudflare proxy**: If using Cloudflare, enable "Development Mode" during setup to avoid challenge loops
-- **Voice tracking**: Requires `voice_states` intent enabled in Discord Developer Portal AND PyNaCl installed (`pip install PyNaCl`)
+- **Voice tracking**: Requires `voice_states` intent enabled in Discord Developer Portal, plus `PyNaCl` (`pip install PyNaCl`)
 - **Bot not responding**: Check `CMD_CHANNEL_IDS` — bot only responds in whitelisted channels. Check `message_content` intent is enabled.
+- **False absence reports**: If someone asks "sakit apa?" in your absensi channel as a reply, the bot should ignore it. If it doesn't, the reply context isn't being detected — check that the bot has `message_content` intent enabled and message cache is working.

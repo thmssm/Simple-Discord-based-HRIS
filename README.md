@@ -6,6 +6,8 @@ Attendance management system — Discord bot + web dashboard. Built for small te
 
 Track who shows up, who's late, who's absent — all through Discord. A bot watches voice channels for attendance, a dashboard shows everything in one place.
 
+The bot also understands **conversations** in your absence channel — it can tell the difference between someone reporting sick (✅ captured) and someone replying "sakit apa?" (✅ ignored). No more false positives from casual chat.
+
 **No new app to install. No separate login (unless you want one). Your team already has Discord open.**
 
 ## Who is this for
@@ -22,7 +24,7 @@ Track who shows up, who's late, who's absent — all through Discord. A bot watc
 
 ### Discord Bot
 
-- **Voice-based attendance** — joins a voice channel, marks you present. Leaves, marks you absent. Late after 10 AM? Flagged.
+- **Voice-based attendance** — joins a voice channel, marks you present. Leaves, marks you absent. Late after the configured threshold (default 10:15 AM)? Flagged.
 - **Natural language meetings** — type `@bot buat meeting Sprint besok jam 2 siang` and it schedules. Indonesian and English.
 - **Recurring schedules** — set daily stand-ups, weekly reviews. Auto-generates meeting instances.
 - **Absence tracking** — post in any designated text channel, bot parses your absence reason with AI. Supports sick leave, day off, paid leave.
@@ -254,4 +256,4 @@ db.commit()
 
 ## License
 
-Private. Contact for licensing.
+MIT. Use freely.

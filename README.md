@@ -49,6 +49,77 @@ The bot also understands **conversations** in your absence channel — it can te
 - **Responsive M3 nav** — navigation rail on desktop, collapsible icons on tablet, drawer on mobile
 - **Static HTML demo** — standalone demo at `/demo/` with hardcoded data, no backend needed
 
+## Discord Server Setup
+
+The bot works best with dedicated channels. Here's a recommended structure you can create inside any Discord server:
+
+### Recommended Category & Channels
+
+```
+📋 HRIS
+├── 📢 announcements        # Bot delivers daily summaries, alerts
+├── 🗣️ general-voice        # Voice channel for daily attendance tracking
+├── 📝 absensi              # Absence channel — bot reads every message here
+└── 🤖 hr-bot-commands      # Bot command channel — @bot commands only work here
+```
+
+| Channel | Purpose | Configuration |
+|---------|---------|---------------|
+| **Absence channel** (`absensi`) | Members post their absences here. Bot reads every message, parses intent via LLM, and records sick leave, day off, paid leave, etc. Replies and casual chat are automatically filtered out. | Set `ABSENSI_CHANNEL_ID` in `.env` to this channel's ID |
+| **Command channel** (`hr-bot-commands`) | `@bot` commands like meeting creation, scheduling, and queries work here. Commands outside this channel (and DMs) are silently ignored. | Set `CMD_CHANNEL_IDS` in `.env` (comma-separated IDs) or edit `bot.py` line 22 |
+| **Voice channels** (`general-voice`) | Bot auto-tracks join/leave events — marks members present while in voice, late if they join after the threshold. No configuration needed, just create the channel. | Auto-detected — no config required |
+| **Announcements** (`announcements`) | Bot delivers automated summaries (morning check-in, evening recap) and watchdog alerts here. | Configure via your cron or scheduling system |
+
+### Finding Channel IDs
+
+Enable **Developer Mode** in Discord: Settings → Advanced → Developer Mode. Then right-click any channel → **Copy ID**.
+
+```bash
+# Example .env config:
+ABSENSI_CHANNEL_ID=123456789012345678
+CMD_CHANNEL_IDS=987654321098765432,123456789098765432
+```
+
+### Bot Permissions & Intents
+
+When creating the bot application at the [Discord Developer Portal](https://discord.com/developers/applications), enable these **Privileged Gateway Intents**:
+
+| Intent | Why it's needed |
+|--------|----------------|
+| **Message Content** | Read messages in the absence and command channels |
+| **Server Members** | Resolve member names and nicknames |
+| **Voice States** | Track when members join/leave voice channels |
+
+Recommended bot permissions (invite with this integer: `277562703936`):
+
+- Read Messages / View Channels
+- Send Messages
+- Read Message History
+- Connect (voice)
+- Speak (voice — optional)
+
+### Security Best Practices
+
+- **Restrict command channels** — only whitelist channels the HR team monitors. Bot ignores everything else, preventing accidental triggers from casual chat.
+- **Separate absence channel** — keeping absences in one channel makes auditing easy and prevents the LLM parser from seeing unrelated conversations.
+- **No DM access** — the bot hard-skips DMs (`if not message.guild: return`). Members can't DM the bot commands or absence reports.
+- **Private command channels** — make the `hr-bot-commands` channel visible only to HR/admins if you want sensitive operations restricted.
+- **Logging** — the bot writes logs to `bot.log` (configurable via `HRBOT_LOG_PATH`). Monitor it for parsing errors or unexpected behavior.
+
+### Channel Configuration Summary
+
+All channel IDs go into `.env`:
+
+```ini
+# Channel where absence messages are monitored
+ABSENSI_CHANNEL_ID=123456789012345678
+
+# Comma-separated channel IDs where @bot commands are allowed
+CMD_CHANNEL_IDS=987654321098765432,123456789098765432
+```
+
+> Without these configured, the bot will connect but won't process any messages. Voice tracking still works — attendance from voice channels requires no channel config.
+
 ## How it works
 
 ```

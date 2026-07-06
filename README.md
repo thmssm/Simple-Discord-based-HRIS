@@ -259,9 +259,9 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=.
-EnvironmentFile=./.env
-ExecStart=./.venv/bin/python3 bot.py
+WorkingDirectory=/opt/hr-bot
+EnvironmentFile=/opt/hr-bot/.env
+ExecStart=/opt/hr-bot/.venv/bin/python3 bot.py
 Restart=always
 
 [Install]

@@ -3,8 +3,8 @@
 import sqlite3, subprocess, sys
 from datetime import datetime, timedelta
 
-DB = "./hr.db"
-LOG = "./bot.log"
+DB = os.environ.get("HRBOT_DB_PATH", "hr.db")
+LOG = os.environ.get("HRBOT_LOG_PATH", "bot.log")
 
 def now():
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -22,7 +22,8 @@ else:
     age_sec = None
     alive = False
 
-svc = subprocess.run(["systemctl", "is-active", "hr-bot.service"], capture_output=True, text=True)
+SERVICE_NAME = os.environ.get("HRBOT_SERVICE", "hr-bot.service")
+svc = subprocess.run(["systemctl", "is-active", SERVICE_NAME], capture_output=True, text=True)
 svc_status = svc.stdout.strip()
 
 if alive:

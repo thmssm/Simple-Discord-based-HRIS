@@ -1,0 +1,58 @@
+<h2>People</h2>
+
+<style>
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #21262d;font-size:13px}
+th{color:#8b949e;font-size:11px;font-weight:600}
+.empty{color:#484f58;padding:8px 0;font-size:13px}
+input#people-search{width:100%;max-width:320px;padding:8px 12px;margin-bottom:12px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:6px;font-size:13px}
+input#people-search:focus{outline:none;border-color:#58a6ff}
+#people-count{font-size:11px;color:#8b949e;margin-bottom:8px}
+</style>
+
+<input type="text" id="people-search" placeholder="Search by name..." oninput="filterPeople()">
+<div id="people-count"></div>
+<div class="table-wrap">
+<div id="people-list">Loading...</div>
+</div>
+
+<script>
+var allMembers=[];
+
+async function loadPeople(){
+  try{
+    var r=await fetch('/api/members');
+    allMembers=await r.json();
+    filterPeople();
+  }catch(e){
+    document.getElementById('people-list').innerHTML='<div class="empty">Error loading employees</div>';
+  }
+}
+
+function htmlEscape(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+
+function filterPeople(){
+  var q=document.getElementById('people-search').value.toLowerCase();
+  var filtered=allMembers.filter(function(m){
+    var name=(m.first_name||'')+' '+(m.last_name||'');
+    return name.toLowerCase().indexOf(q)>=0 || (m.role||'').toLowerCase().indexOf(q)>=0;
+  });
+  
+  document.getElementById('people-count').textContent=filtered.length+' employee'+(filtered.length!==1?'s':'');
+  
+  if(!filtered.length){
+    document.getElementById('people-list').innerHTML='<div class="empty">No employees match your search</div>';
+    return;
+  }
+  
+  var html='<table><thead><tr><th>Name</th><th>Role</th></tr></thead><tbody>';
+  filtered.forEach(function(m){
+    var name=(m.first_name||'')+' '+(m.last_name||'');
+    html+='<tr><td><a href="/people/'+encodeURIComponent(m.discord_id)+'" style="color:#58a6ff;text-decoration:none">'+htmlEscape(name.trim())+'</a></td><td style="color:#8b949e">'+htmlEscape(m.role||'-')+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('people-list').innerHTML=html;
+}
+
+loadPeople();
+</script>

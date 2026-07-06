@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """HR Dashboard API — Discord HR Bot"""
-import http.server, sqlite3, json, os, hashlib, secrets
+import http.server, sqlite3, json, os, hashlib, secrets, re
 from datetime import timezone, timedelta
 from datetime import date, datetime, timedelta
 
-DB = "./hr.db"
+DB = os.environ.get("HRBOT_DB_PATH", "hr.db")
 PORT = 8081
 
 WIB = timezone(timedelta(hours=7))
@@ -67,7 +67,7 @@ class API(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/health":
             self.serve_health()
             return
-        if self.path != "/login" and not self.path.startswith("/login?") and self.path != "/api/login" and not self.path.startswith("/calendar") and not self.path.startswith("/api/calendar") and self.path != "/attendance-history" and self.path != "/absences":
+        if self.path != "/login" and not self.path.startswith("/login?") and self.path != "/api/login" and not self.path.startswith("/calendar") and self.path != "/attendance-history" and self.path != "/absences" and not self.path.startswith("/api/person/"):
             if not self._get_session_cookie():
                 self._redirect_to_login()
                 return
@@ -109,6 +109,18 @@ class API(http.server.BaseHTTPRequestHandler):
             self.serve_absences_page()
         elif self.path.startswith("/calendar"):
             self.serve_calendar_page()
+        elif re.match(r'/api/person/[^/]+/stats', self.path):
+            self.serve_person_stats_api()
+        elif re.match(r'/api/person/[^/]+$', self.path):
+            self.serve_person_api()
+        elif self.path == "/people":
+            self.serve_people()
+        elif self.path.startswith("/people/"):
+            self.serve_person_page()
+        elif self.path == "/reports":
+            self.serve_reports()
+        elif self.path.startswith("/static/"):
+            self.serve_static()
         else:
             self.send_error(404)
 
@@ -193,8 +205,8 @@ class API(http.server.BaseHTTPRequestHandler):
             db2.execute('PRAGMA busy_timeout=5000')
             db2.row_factory = sqlite3.Row
             for s in schedules:
-                new_start = f"time('{s["start_time"]}', '-7 hours')"
-                new_end = f"time('{s["end_time"]}', '-7 hours')"
+                new_start = f"time('{s['start_time']}', '-7 hours')"
+                new_end = f"time('{s['end_time']}', '-7 hours')"
                 if s["name"] not in existing_names:
                     db2.execute(
                         f"INSERT INTO meetings (name, date, start_time, end_time, channel_id, channel_name) VALUES (?,?,{new_start},{new_end},?,?)",
@@ -300,45 +312,459 @@ class API(http.server.BaseHTTPRequestHandler):
         })
 
     def serve_html(self):
-        html = open("./dashboard.html").read()
+        html = self._nav_wrapper(open("./dashboard.html").read(), "dashboard")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(html.encode())
+
+    def serve_people(self):
+        html = self._nav_wrapper(open("./people.html").read(), "people")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(html.encode())
+
+    def serve_person_page(self):
+        html = self._nav_wrapper(open("./person.html").read(), "people")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(html.encode())
+
+    def serve_person_api(self):
+        from urllib.parse import urlparse, parse_qs
+        import re
+
+        # Extract discord_id from path: /api/person/{discord_id}
+        m = re.search(r'/api/person/([^/?]+)', self.path)
+        if not m:
+            self.send_error(400)
+            return
+        discord_id = m.group(1)
+
+        qs = parse_qs(urlparse(self.path).query)
+        req_date = qs.get("date", [None])[0] or wib_today()
+
+        # Name resolution
+        members_map = {m["discord_id"]: (m["first_name"] + " " + (m["last_name"] or "")).strip()
+                       for m in query("SELECT discord_id, first_name, last_name FROM members WHERE active=1", ())}
+
+        real_name = members_map.get(discord_id, None)
+        if not real_name:
+            self.send_json_status({"error": "Member not found"}, 404)
+            return
+
+        # Check date validity
+        try:
+            req_date_obj = date.fromisoformat(req_date)
+        except:
+            self.send_json_status({"error": "Invalid date"}, 400)
+            return
+
+        is_weekend = req_date_obj.weekday() >= 5
+        is_future = req_date_obj > datetime.now(WIB).date()
+        is_holiday_obj = query("SELECT name FROM holidays WHERE date=?", (req_date,))
+        is_holiday = bool(is_holiday_obj)
+        holiday_name = is_holiday_obj[0]["name"] if is_holiday_obj else None
+
+        result = {
+            "user_id": discord_id,
+            "user_name": real_name,
+            "date": req_date,
+            "is_weekend": is_weekend,
+            "is_holiday": is_holiday,
+            "holiday_name": holiday_name,
+            "is_future": is_future,
+            "status": "missing",
+            "status_label": "Missing",
+            "absence": None,
+            "sessions": [],
+            "total_minutes": 0,
+            "first_join": None,
+            "last_leave": None,
+        }
+
+        if is_future:
+            result["status"] = "future"
+            result["status_label"] = "Future"
+            self.send_json(result)
+            return
+
+        # Check absences
+        abs_records = query("""SELECT absence_type, note, date, end_date FROM absences
+                               WHERE user_id=? AND ((end_date IS NULL AND date = ?)
+                                  OR (end_date IS NOT NULL AND date <= ? AND end_date >= ?))
+                           """, (discord_id, req_date, req_date, req_date))
+        if abs_records:
+            ab = abs_records[0]
+            result["absence"] = {"type": ab["absence_type"], "note": ab["note"], "start_date": ab["date"], "end_date": ab.get("end_date")}
+            type_map = {"sick": "sick", "day_off": "off", "paid_leave": "leave", "afk": "afk"}
+            result["status"] = type_map.get(ab["absence_type"], "off")
+            result["status_label"] = ab["absence_type"].replace("_", " ").title()
+
+        # Get voice sessions
+        sessions = query("""
+            SELECT v.id, v.channel_name, v.join_time, v.leave_time, v.duration_minutes
+            FROM voice_sessions v
+            WHERE v.user_id=? AND date(v.join_time)=?
+            ORDER BY v.join_time
+        """, (discord_id, req_date))
+
+        if sessions:
+            result["sessions"] = [{
+                "channel_name": s["channel_name"],
+                "join_time": s["join_time"],
+                "leave_time": s["leave_time"],
+                "duration_minutes": s["duration_minutes"],
+                "active": s["leave_time"] is None,
+            } for s in sessions]
+
+            total = sum(s["duration_minutes"] or 0 for s in sessions)
+            for s in sessions:
+                if not s["leave_time"]:
+                    try:
+                        from datetime import datetime as dt
+                        now_utc = dt.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                        elapsed = int((dt.fromisoformat(now_utc) - dt.fromisoformat(s["join_time"])).total_seconds() // 60)
+                        total += elapsed
+                    except:
+                        pass
+            result["total_minutes"] = total
+            result["first_join"] = sessions[0]["join_time"]
+            leaves = [s["leave_time"] for s in sessions if s["leave_time"]]
+            result["last_leave"] = leaves[-1] if leaves else None
+
+        # Determine status
+        if not result["absence"] and not is_future:
+            if is_holiday and not sessions:
+                result["status"] = "holiday"
+                result["status_label"] = "Holiday"
+            elif is_weekend and not sessions:
+                result["status"] = "weekend"
+                result["status_label"] = "Weekend"
+            elif sessions:
+                try:
+                    time_part = sessions[0]["join_time"].split(" ")[1]
+                    first_hour = (int(time_part.split(":")[0]) + 7) % 24
+                    first_min = int(time_part.split(":")[1])
+                    if first_hour > 10 or (first_hour == 10 and first_min > 15):
+                        result["status"] = "late"
+                        result["status_label"] = "Late"
+                    else:
+                        result["status"] = "present"
+                        result["status_label"] = "Present"
+                except:
+                    result["status"] = "present"
+                    result["status_label"] = "Present"
+
+        self.send_json(result)
+
+    def serve_person_stats_api(self):
+        from urllib.parse import urlparse, parse_qs
+        import re
+
+        m = re.search(r'/api/person/([^/]+)/stats', self.path)
+        if not m:
+            self.send_error(400)
+            return
+        discord_id = m.group(1)
+
+        qs = parse_qs(urlparse(self.path).query)
+        from_date = qs.get("from", [None])[0]
+        to_date = qs.get("to", [None])[0]
+
+        if not from_date or not to_date:
+            self.send_json_status({"error": "from and to query params required"}, 400)
+            return
+
+        # Name
+        members_map = {m["discord_id"]: (m["first_name"] + " " + (m["last_name"] or "")).strip()
+                       for m in query("SELECT discord_id, first_name, last_name FROM members WHERE active=1", ())}
+        real_name = members_map.get(discord_id, None)
+        if not real_name:
+            self.send_json_status({"error": "Member not found"}, 404)
+            return
+
+        today = datetime.now(WIB).date()
+        from_d = date.fromisoformat(from_date)
+        to_d = date.fromisoformat(to_date)
+
+        if from_d > to_d:
+            self.send_json_status({"error": "from must be before or equal to to"}, 400)
+            return
+
+        # All dates in range
+        from datetime import timedelta as dtdelta
+        date_strings = [(from_d + dtdelta(days=i)).isoformat() for i in range((to_d - from_d).days + 1)]
+
+        # Get holidays in range
+        holidays_in_range = {h["date"]: h["name"] for h in
+            query("SELECT date, name FROM holidays WHERE date BETWEEN ? AND ?", (from_date, to_date))}
+
+        # Counters
+        day_counts = {
+            "present": 0, "late": 0, "missing": 0,
+            "sick": 0, "day_off": 0, "paid_leave": 0, "afk": 0, "other_absence": 0,
+            "holiday": 0, "weekend": 0,
+        }
+        total_voice_minutes = 0
+        days_with_data = 0
+
+        # Limit range
+        max_dates = 365
+        if len(date_strings) > max_dates:
+            self.send_json_status({"error": f"Date range too large. Maximum {max_dates} days."}, 400)
+            return
+
+        for d_str in date_strings:
+            d = date.fromisoformat(d_str)
+
+            # Future dates
+            if d > today:
+                continue
+
+            # Holiday
+            if d_str in holidays_in_range:
+                day_counts["holiday"] += 1
+                continue
+
+            # Weekend
+            if d.weekday() >= 5:
+                day_counts["weekend"] += 1
+                continue
+
+            # Absences covering this date
+            covering_abs = query("""
+                SELECT absence_type, note FROM absences
+                WHERE user_id=? AND (
+                    (end_date IS NULL AND date = ?)
+                    OR (end_date IS NOT NULL AND date <= ? AND end_date >= ?)
+                )
+                LIMIT 1
+            """, (discord_id, d_str, d_str, d_str))
+
+            if covering_abs:
+                ab_type = covering_abs[0]["absence_type"]
+                if ab_type in day_counts:
+                    day_counts[ab_type] += 1
+                else:
+                    day_counts["other_absence"] += 1
+                continue
+
+            # Check voice sessions
+            sessions = query("""
+                SELECT duration_minutes FROM voice_sessions
+                WHERE user_id=? AND date(join_time)=?
+            """, (discord_id, d_str))
+
+            if not sessions:
+                day_counts["missing"] += 1
+                continue
+
+            # Calculate total minutes
+            day_minutes = sum(s["duration_minutes"] or 0 for s in sessions)
+            total_voice_minutes += day_minutes
+            days_with_data += 1
+
+            # Check if late (first join after 10:15 WIB)
+            first_sesh = query("""
+                SELECT join_time FROM voice_sessions
+                WHERE user_id=? AND date(join_time)=?
+                ORDER BY join_time LIMIT 1
+            """, (discord_id, d_str))
+
+            if first_sesh:
+                time_part = first_sesh[0]["join_time"].split(" ")[1]
+                first_hour = (int(time_part.split(":")[0]) + 7) % 24
+                first_min = int(time_part.split(":")[1])
+                if first_hour > 10 or (first_hour == 10 and first_min > 15):
+                    day_counts["late"] += 1
+                else:
+                    day_counts["present"] += 1
+
+        total_data_days = day_counts["present"] + day_counts["late"] + day_counts["missing"] +                           day_counts["sick"] + day_counts["day_off"] + day_counts["paid_leave"] +                           day_counts["afk"] + day_counts["other_absence"]
+
+        avg_minutes = round(total_voice_minutes / days_with_data) if days_with_data > 0 else 0
+
+        self.send_json({
+            "user_id": discord_id,
+            "user_name": real_name,
+            "from": from_date,
+            "to": to_date,
+            "total_days_in_range": len(date_strings),
+            "total_data_days": total_data_days,
+            "day_counts": day_counts,
+            "total_voice_minutes": total_voice_minutes,
+            "days_with_voice": days_with_data,
+            "avg_voice_minutes": avg_minutes,
+        })
+
+    def serve_reports(self):
+        html = self._nav_wrapper(open("./reports.html").read(), "reports")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode())
 
     def serve_admin(self):
-        html = open("./admin.html").read()
+        html = self._nav_wrapper(open("./admin.html").read(), "admin")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode())
 
     def serve_attendance_history_page(self):
-        html = open("./attendance-history.html").read()
+        html = self._nav_wrapper(open("./attendance-history.html").read(), "dashboard")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode())
 
     def serve_absences_page(self):
-        html = open("./absences.html").read()
+        html = self._nav_wrapper(open("./absences.html").read(), "absences")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode())
 
     def serve_calendar_page(self):
-        html = open("./calendar.html").read()
+        html = self._nav_wrapper(open("./calendar.html").read(), "calendar")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(html.encode())
+
+    def serve_static(self):
+        import mimetypes, os
+        STATIC_ROOT = os.environ.get("HRBOT_STATIC_ROOT", ".")
+        _raw = STATIC_ROOT + self.path
+        filepath = os.path.abspath(_raw)
+        if not filepath.startswith(STATIC_ROOT + "/static/"):
+            self.send_error(403)
+            return
+        if not os.path.exists(filepath):
+            self.send_error(404)
+            return
+        mime, _ = mimetypes.guess_type(filepath)
+        self.send_response(200)
+        self.send_header("Content-Type", mime or "application/octet-stream")
+        self.send_header("Cache-Control", "max-age=3600")
+        self.end_headers()
+        with open(filepath, "rb") as f:
+            self.wfile.write(f.read())
+
+    NAV_HTML = r"""<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/static/nav.css">
+__HEAD_CONTENT__
+</head>
+<body>
+<div class="layout">
+  <!-- Navigation Rail -->
+  <nav class="nav-rail" id="nav-rail">
+    <div class="nav-rail-header">
+      <span class="logo">HRIS</span>
+      <div class="logo-text"><span class="logo-sub">Organization</span></div>
+    </div>
+    <div class="nav-rail-items">
+      <a href="/" class="nav-item %s" data-page="dashboard"><span class="icon">📊</span><span class="label">Dashboard</span></a>
+      <a href="/absences" class="nav-item %s" data-page="absences"><span class="icon">📋</span><span class="label">Absences</span></a>
+      <a href="/people" class="nav-item %s" data-page="people"><span class="icon">👥</span><span class="label">People</span></a>
+      <a href="/calendar" class="nav-item %s" data-page="calendar"><span class="icon">📅</span><span class="label">Calendar</span></a>
+      <a href="/reports" class="nav-item %s" data-page="reports"><span class="icon">📈</span><span class="label">Reports</span></a>
+      <div class="nav-divider"></div>
+      <a href="/admin" class="nav-item %s" data-page="admin"><span class="icon">⚙️</span><span class="label">Admin</span></a>
+    </div>
+    <div class="nav-spacer"></div>
+    <a href="/api/logout" class="nav-logout"><span class="icon">🚪</span><span class="label">Logout</span></a>
+  </nav>
+
+  <!-- Top Bar (mobile) -->
+  <div class="topbar">
+    <button class="hamburger" onclick="toggleDrawer()">☰</button>
+    <span class="page-title" id="mobile-page-title">Dashboard</span>
+  </div>
+
+  <!-- Mobile Drawer Overlay -->
+  <div class="nav-drawer-overlay" id="nav-drawer-overlay"></div>
+
+  <!-- Mobile Drawer -->
+  <nav class="nav-drawer" id="nav-drawer">
+    <div class="nav-drawer-header">
+      <div class="logo">HRIS</div>
+    </div>
+    <div class="nav-drawer-items">
+      <a href="/" class="nav-item %s" onclick="toggleDrawer()"><span class="icon">📊</span><span class="label">Dashboard</span></a>
+      <a href="/absences" class="nav-item %s" onclick="toggleDrawer()"><span class="icon">📋</span><span class="label">Absences</span></a>
+      <a href="/people" class="nav-item %s" onclick="toggleDrawer()"><span class="icon">👥</span><span class="label">People</span></a>
+      <a href="/calendar" class="nav-item %s" onclick="toggleDrawer()"><span class="icon">📅</span><span class="label">Calendar</span></a>
+      <a href="/reports" class="nav-item %s" onclick="toggleDrawer()"><span class="icon">📈</span><span class="label">Reports</span></a>
+      <div class="nav-divider"></div>
+      <a href="/admin" class="nav-item %s" onclick="toggleDrawer()"><span class="icon">⚙️</span><span class="label">Admin</span></a>
+      <div class="nav-spacer"></div>
+      <a href="/api/logout" class="nav-logout" onclick="toggleDrawer()"><span class="icon">🚪</span><span class="label">Logout</span></a>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="layout-main page-content" id="main-content">
+__BODY_CONTENT__
+  </main>
+</div>
+<script src="/static/nav.js"></script>
+__BODY_SCRIPTS__
+</body>
+</html>"""
+
+    def _nav_wrapper(self, content, active_page):
+        active = 'active'
+        inactive = ''
+        classes = [active if active_page == p else inactive for p in ['dashboard','absences','people','calendar','reports','admin']]
+        # Same for drawer
+        classes_drawer = [active if active_page == p else inactive for p in ['dashboard','absences','people','calendar','reports','admin']]
+        all_classes = classes + classes_drawer
+
+        # Extract head content from original HTML
+        head_start = content.find("<head>")
+        head_end = content.find("</head>")
+        head_section = ""
+        body_section = content
+        scripts = ""
+
+        if head_start >= 0 and head_end >= 0:
+            head_section = content[head_start + 6:head_end].strip()
+            body_section = content[head_end + 7:]
+
+        # Extract scripts from body end
+        body_tag_end = body_section.find("</body>")
+        if body_tag_end >= 0:
+            body_before = body_section[:body_tag_end]
+            body_after = body_section[body_tag_end + 7:]
+            # Extract any inline scripts or content that should go after nav.js
+            body_section = body_before
+
+        nav = self.NAV_HTML % tuple(all_classes)
+        nav = nav.replace("__HEAD_CONTENT__", head_section)
+        nav = nav.replace("__BODY_CONTENT__", body_section)
+        nav = nav.replace("__BODY_SCRIPTS__", "")
+
+        return nav
+
     def send_json(self, data):
         body = json.dumps(data, default=str).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # Restrict CORS to the dashboard domain
+        origin = self.headers.get("Origin", "")
+        if origin and not origin.startswith("http"):  # Allow same-origin only
+            self.send_header("Access-Control-Allow-Origin", origin)
+        else:
+            self.send_header("Access-Control-Allow-Origin", "null")  # Restrict by default
         self.end_headers()
         self.wfile.write(body)
 
@@ -347,6 +773,11 @@ class API(http.server.BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
+        origin = self.headers.get("Origin", "")
+        if origin and not origin.startswith("http"):  # Allow same-origin only
+            self.send_header("Access-Control-Allow-Origin", origin)
+        else:
+            self.send_header("Access-Control-Allow-Origin", "null")  # Restrict by default
         self.end_headers()
         self.wfile.write(body)
 
@@ -426,22 +857,21 @@ class API(http.server.BaseHTTPRequestHandler):
             password = body.get("password", [""])[0]
             turnstile_token = body.get("cf-turnstile-response", [""])[0]
         
-        # Verify Turnstile with Cloudflare (skip for localhost)
-        if client_ip not in ("127.0.0.1", "::1", "localhost"):
-            secret = os.environ.get("TURNSTILE_SECRET_KEY", "")
-            import urllib.request as ur, urllib.parse as up
-            verify_data = up.urlencode({"secret": secret, "response": turnstile_token}).encode()
-            verify_req = ur.Request("https://challenges.cloudflare.com/turnstile/v0/siteverify", data=verify_data)
-            try:
-                verify_resp = json.loads(ur.urlopen(verify_req, timeout=5).read())
-                if not verify_resp.get("success"):
-                    db.close()
-                    self.send_response(302)
-                    self.send_header("Location", "/login?error=2")
-                    self.end_headers()
-                    return
-            except:
-                db.close()
+        # Turnstile verification
+        import urllib.request
+        TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET_KEY", "")
+        if TURNSTILE_SECRET and turnstile_token:
+            verify_data = urllib.parse.urlencode({
+                "secret": TURNSTILE_SECRET,
+                "response": turnstile_token
+            }).encode()
+            verify_req = urllib.request.Request(
+                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                data=verify_data
+            )
+            with urllib.request.urlopen(verify_req, timeout=5) as resp:
+                result = json.loads(resp.read())
+            if not result.get("success"):
                 self.send_response(302)
                 self.send_header("Location", "/login?error=2")
                 self.end_headers()
@@ -452,7 +882,7 @@ class API(http.server.BaseHTTPRequestHandler):
         if row and _verify_password(password, row[0]):
             token = _create_session(username)
             self.send_response(302)
-            self.send_header("Set-Cookie", f"session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400")
+            self.send_header("Set-Cookie", f"session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400; Secure")
             self.send_header("Location", "/")
             self.end_headers()
         else:

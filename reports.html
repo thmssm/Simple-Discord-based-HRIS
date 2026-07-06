@@ -1,0 +1,72 @@
+<h2>Reports</h2>
+
+<style>
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #21262d}
+th{color:#8b949e;font-size:11px;font-weight:600}
+td{color:#c9d1d9}
+</style>
+
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+  <div class="stat-card">
+    <div class="stat-label">Today's Attendance</div>
+    <div style="font-size:22px;font-weight:700;color:#58a6ff" id="stat-attendance">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">In Voice Now</div>
+    <div style="font-size:22px;font-weight:700;color:#3fb950" id="stat-voice">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Absences Today</div>
+    <div style="font-size:22px;font-weight:700;color:#da3633" id="stat-absences">—</div>
+  </div>
+</div>
+
+<div id="report-content" style="color:#8b949e;font-size:13px">Loading...</div>
+
+<script>
+function fmtTime(t){
+  try{
+    var parts=t.split(':');var h=parseInt(parts[0]),m=parseInt(parts[1]);
+    h=(h+7)%24;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+  }catch(e){return t}
+}
+
+async function loadReports(){
+  try{
+    var r=await fetch('/api/today');
+    if(r.redirected){window.location.href='/login';return}
+    var d=await r.json();
+
+    var allUsers={};
+    (d.voice_today||[]).forEach(function(v){allUsers[v.user_id||v.user_name]=1});
+    (d.active_voice||[]).forEach(function(v){allUsers[v.user_id||v.user_name]=1});
+    var uniqueCount=Object.keys(allUsers).length;
+    document.getElementById('stat-attendance').textContent=uniqueCount+' people';
+    document.getElementById('stat-voice').textContent=(d.active_voice||[]).length+' people';
+    document.getElementById('stat-absences').textContent=(d.absences||[]).length+' people';
+
+    var html='<h3 style="color:#e6edf3;font-size:14px;margin:16px 0 8px;border-bottom:1px solid #21262d;padding-bottom:4px">Summary</h3>';
+    html+='<div class="table-wrap"><table>';
+    html+='<thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>';
+    html+='<tr><td>Date</td><td style="color:#8b949e">'+d.date+'</td></tr>';
+    html+='<tr><td>Upcoming Meetings</td><td style="color:#8b949e">'+(d.upcoming_meetings||[]).length+'</td></tr>';
+    html+='<tr><td>Active Voice Channels</td><td style="color:#8b949e">'+(d.active_voice?Object.keys(d.active_voice.reduce(function(a,v){a[v.channel_name]=1;return a},{})).length:0)+'</td></tr>';
+    html+='</tbody></table></div>';
+
+    if(d.upcoming_meetings&&d.upcoming_meetings.length){
+      html+='<h3 style="color:#e6edf3;font-size:14px;margin:16px 0 8px;border-bottom:1px solid #21262d;padding-bottom:4px">Upcoming Meetings (WIB)</h3>';
+      html+='<div class="table-wrap"><table><thead><tr><th>Name</th><th>Channel</th><th>Time (WIB)</th></tr></thead><tbody>';
+      d.upcoming_meetings.forEach(function(m){
+        html+='<tr><td>'+m.name+'</td><td style="color:#8b949e">'+m.channel_name+'</td><td style="color:#8b949e">'+fmtTime(m.start_time)+' - '+fmtTime(m.end_time)+'</td></tr>';
+      });
+      html+='</tbody></table></div>';
+    }
+
+    document.getElementById('report-content').innerHTML=html;
+  }catch(e){
+    document.getElementById('report-content').innerHTML='<div style="color:#da3633">Error loading reports</div>';
+  }
+}
+loadReports();
+</script>

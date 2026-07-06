@@ -1,21 +1,12 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Attendance History</title>
+<h2>Attendance History</h2>
+
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;padding:24px;max-width:900px;margin:0 auto}
-@media(max-width:600px){body{padding:12px}}
-h1{font-size:18px;color:#e6edf3;margin-bottom:4px}
-a{color:#58a6ff;text-decoration:none;font-size:13px}
 table{width:100%;border-collapse:collapse}
 th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #21262d;font-size:12px}
 th{color:#8b949e;font-size:11px;font-weight:600}
 .empty{color:#484f58;padding:8px 0;font-size:13px}
 .hidden{display:none}
-input{width:auto;padding:6px;margin-bottom:12px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;font-size:13px}
+input[type=date]{width:auto;padding:6px;margin-bottom:12px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;font-size:13px}
 .badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;display:inline-block;min-width:60px;text-align:center}
 .badge-present{background:#238636;color:#fff}
 .badge-late{background:#d29922;color:#000}
@@ -36,11 +27,6 @@ input{width:auto;padding:6px;margin-bottom:12px;background:#0d1117;border:1px so
 .stat-num{font-size:20px;font-weight:700}
 .btn{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
 </style>
-</head>
-<body>
-
-<h1>Attendance History</h1>
-<a href="/">← Back to Dashboard</a> | <a href="/api/logout" style="color:#da3633">Logout</a>
 
 <div style="margin:12px 0;display:flex;align-items:center;gap:8px">
   <button onclick="changeDay(-1)" class="btn" style="width:auto;padding:6px 10px">&lt;</button>
@@ -81,14 +67,12 @@ function fmtDateTime(dt){
 
 async function loadHistory(){
   var dateVal=document.getElementById('ah-date').value||new Date().toISOString().split('T')[0];
-  // Check URL param for date override (from calendar navigation)
   var params=new URLSearchParams(window.location.search);
   if(params.get('date')) dateVal=params.get('date');
   document.getElementById('ah-date').value=dateVal;
 
   var r=await fetch(API+'/api/attendance-history?date='+dateVal+'&_='+Date.now(),{cache:'no-store'}),d=await r.json();
   
-  // Future date: show message, no member list
   if(d.future){
     document.getElementById('stats').innerHTML='<div class=stat style=flex:1><div class=stat-num style=color:#484f58>—</div>Future</div>';
     document.getElementById('history-list').innerHTML='<div class=empty>This date has not occurred yet — no attendance data available.</div>';
@@ -124,15 +108,15 @@ async function loadHistory(){
     var note=u.absence?' <span class=absence-note>('+u.absence.note.substring(0,50)+')</span>':'';
     var sessions=u.sessions.length?u.sessions.length+' sessions':'';
 
-    html+='<tr class=member-row data-detail='+detailId+'><td>'+u.user_name+note+'</td><td><span class=\"badge '+badgeClass+'\">'+u.status_label+'</span></td><td style=color:#8b949e>'+fj+'</td><td style=color:#8b949e>'+(u.total_minutes||0)+' min</td><td style=color:#484f58;font-size:10px>'+sessions+'</td></tr>';
+    html+='<tr class=member-row data-detail='+detailId+'><td>'+u.user_name+note+'</td><td><span class="badge '+badgeClass+'">'+u.status_label+'</span></td><td style=color:#8b949e>'+fj+'</td><td style=color:#8b949e>'+(u.total_minutes||0)+' min</td><td style=color:#484f58;font-size:10px>'+sessions+'</td></tr>';
 
     if(u.sessions.length){
-      html+='<tr class=\"session-detail hidden\" id='+detailId+'><td colspan=5>';
+      html+='<tr class="session-detail hidden" id='+detailId+'><td colspan=5>';
       u.sessions.forEach(function(s){
         var jt=fmtDateTime(s.join_time);
         var lt=s.leave_time?fmtDateTime(s.leave_time):'active';
         var dur=s.duration_minutes?s.duration_minutes+' min':(s.active?'ongoing':'-');
-        html+='<div style=\"padding:2px 0\">'+s.channel_name+' | '+jt+' - '+lt+' | '+dur+'</div>';
+        html+='<div style="padding:2px 0">'+s.channel_name+' | '+jt+' - '+lt+' | '+dur+'</div>';
       });
       html+='</td></tr>';
     }
@@ -140,7 +124,6 @@ async function loadHistory(){
   html+='</tbody></table>';
   el.innerHTML=html;
 
-  // Attach click handlers
   document.querySelectorAll('.member-row').forEach(function(row){
     row.addEventListener('click',function(){
       var detailId=this.dataset.detail;
@@ -154,5 +137,3 @@ document.getElementById('ah-date').addEventListener('change',loadHistory);
 document.getElementById('ah-date').value=new Date().toISOString().split('T')[0];
 loadHistory();
 </script>
-</body>
-</html>

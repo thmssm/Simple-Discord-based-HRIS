@@ -1,0 +1,327 @@
+
+<style>
+a{color:#58a6ff;text-decoration:none;font-size:13px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #21262d;font-size:13px}
+th{color:#8b949e;font-size:11px;font-weight:600}
+.empty{color:#484f58;padding:8px 0;font-size:13px}
+.status-badge{padding:3px 12px;border-radius:12px;font-size:12px;font-weight:600;display:inline-block}
+.status-present{background:#238636;color:#fff}
+.status-late{background:#d29922;color:#000}
+.status-missing{background:#484f58;color:#c9d1d9}
+.status-weekend{background:#1a1d23;color:#8b949e;border:1px solid #30363d}
+.status-holiday{background:#58a6ff;color:#000}
+.status-sick{background:#d29922;color:#000}
+.status-off{background:#da3633;color:#fff}
+.status-afk{background:#3fb950;color:#000}
+.status-leave{background:#58a6ff;color:#000}
+.status-future{background:#1a1d23;color:#484f58;border:1px solid #30363d}
+.status-other{background:#484f58;color:#c9d1d9}
+.day-nav{display:flex;align-items:center;gap:6px;margin:16px 0;flex-wrap:wrap}
+.day-nav button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+.day-nav button:hover{background:#30363d}
+.day-nav button.today-btn{background:#1f6feb;border-color:#58a6ff;color:#fff}
+.day-nav .date-display{font-size:16px;font-weight:600;color:#e6edf3;min-width:160px;text-align:center}
+.person-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.person-avatar{width:40px;height:40px;border-radius:50%;background:#21262d;display:flex;align-items:center;justify-content:center;font-size:18px;color:#8b949e}
+.person-detail-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px}
+.person-detail-card h3{font-size:13px;color:#8b949e;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}
+.stat-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #21262d;font-size:13px}
+.stat-row:last-child{border-bottom:none}
+.stat-label{color:#8b949e}.stat-value{color:#e6edf3;font-weight:500}
+.session-item{padding:8px;margin-bottom:6px;background:#0d1117;border:1px solid #21262d;border-radius:6px;font-size:12px}.session-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:6px;vertical-align:middle}.session-badge-first{background:#1f6feb;color:#fff}.session-badge-last{background:#da3633;color:#fff}
+.session-item .session-time{color:#8b949e;font-size:11px}
+.session-item .session-channel{color:#58a6ff}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:12px}
+.stat-card{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:12px;text-align:center}
+.stat-card .stat-card-num{font-size:24px;font-weight:700}
+.stat-card .stat-card-label{font-size:11px;color:#8b949e;margin-top:2px;text-transform:uppercase}
+.range-nav{display:flex;align-items:center;gap:6px;margin:16px 0;flex-wrap:wrap}
+.range-nav input[type=date]{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:13px}
+.range-nav button{background:#238636;border:1px solid #2ea043;color:#fff;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500}
+.range-nav button:hover{background:#2ea043}
+.range-nav .range-label{color:#8b949e;font-size:12px}
+.back-link{display:inline-block;margin-bottom:12px;color:#8b949e;font-size:12px}
+.back-link:hover{color:#58a6ff}
+.detail-section-title{color:#58a6ff;font-size:14px;margin:16px 0 8px;padding-bottom:4px;border-bottom:1px solid #21262d}
+</style>
+
+<a href="/people" class="back-link">← Back to People</a>
+
+<div class="person-header">
+  <div class="person-avatar" id="person-avatar">?</div>
+  <div>
+    <h2 id="person-name" style="margin:0">Loading...</h2>
+    <span id="person-role" style="color:#8b949e;font-size:12px"></span>
+  </div>
+</div>
+
+<div class="detail-section-title">Daily View</div>
+<div class="day-nav">
+  <button onclick="navigateDay(-1)">&lt; Prev</button>
+  <input type="date" id="day-date" style="background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:6px;font-size:13px" onchange="loadDay()">
+  <button onclick="navigateDay(1)">Next &gt;</button>
+  <button onclick="goToday()" class="today-btn">Today</button>
+  <span id="day-status-label" style="margin-left:8px"></span>
+</div>
+
+<div id="day-view">
+  <div class="empty">Loading...</div>
+</div>
+
+<div class="detail-section-title">Date Range Summary</div>
+<div class="range-nav">
+  <span class="range-label">From:</span>
+  <input type="date" id="range-from">
+  <span class="range-label">To:</span>
+  <input type="date" id="range-to">
+  <button onclick="loadStats()">Analyze</button>
+</div>
+
+<div id="stats-view">
+  <div class="empty">Select a date range and click Analyze</div>
+</div>
+
+<script>
+var API = '';
+var discordId = '';
+
+// Extract discord_id from URL path: /people/{id}
+var pathParts = window.location.pathname.split('/');
+discordId = pathParts[pathParts.length - 1];
+
+function showError(msg) {
+  document.getElementById('day-view').innerHTML = '<div class="empty">' + msg + '</div>';
+  document.getElementById('stats-view').innerHTML = '<div class="empty">Select a date range and click Analyze</div>';
+}
+
+function htmlEscape(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function initPage() {
+  if (!discordId || discordId === 'people') {
+    document.getElementById('person-name').textContent = 'Invalid employee ID';
+    showError('No valid employee ID in URL');
+    return;
+  }
+
+  // Load member info
+  fetch(API + '/api/members').then(function(r){return r.json()}).then(function(members){
+    var m = members.find(function(x){return x.discord_id === discordId});
+    if (m) {
+      document.getElementById('person-name').textContent = htmlEscape((m.first_name || '') + ' ' + (m.last_name || '')).trim();
+      document.getElementById('person-role').textContent = htmlEscape(m.role || '-');
+      document.getElementById('person-avatar').textContent = (m.first_name || '?')[0].toUpperCase();
+    }
+  });
+  
+  setDateInputs();
+  loadDay();
+}
+
+function setDateInputs() {
+  var now = new Date();
+  var pad = function(n){return String(n).padStart(2,'0')};
+  var today = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate());
+  document.getElementById('day-date').value = today;
+  var firstOfMonth = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-01';
+  document.getElementById('range-from').value = firstOfMonth;
+  document.getElementById('range-to').value = today;
+}
+
+
+function fmtWIB(utcStr) {
+  try {
+    var parts = utcStr.split(' ');
+    if (parts.length < 2) return utcStr;
+    var timeParts = parts[1].split(':');
+    var h = (parseInt(timeParts[0]) + 7) % 24;
+    return String(h).padStart(2,'0') + ':' + timeParts[1];
+  } catch(e) { return utcStr; }
+}
+
+function getStatusClass(status) {
+  var map = {
+    'present': 'present', 'late': 'late', 'missing': 'missing',
+    'sick': 'sick', 'off': 'off', 'leave': 'leave', 'afk': 'afk',
+    'holiday': 'holiday', 'weekend': 'weekend', 'future': 'future'
+  };
+  return 'status-badge status-' + (map[status] || 'other');
+}
+
+function getStatusLabel(data) {
+  if (data.absence && data.absence.type) {
+    var labels = {sick:'Sick', day_off:'Day Off', paid_leave:'Paid Leave', afk:'AFK'};
+    return labels[data.absence.type] || data.absence.type.replace('_',' ').replace(/\b\w/g,function(c){return c.toUpperCase()});
+  }
+  var labels = {present:'Present', late:'Late', missing:'Missing', holiday:'Holiday', weekend:'Weekend', future:'Future'};
+  return labels[data.status] || data.status_label || 'Unknown';
+}
+
+function loadDay() {
+  var dateStr = document.getElementById('day-date').value;
+  if (!dateStr) return;
+  fetch(API + '/api/person/' + discordId + '?date=' + dateStr)
+    .then(function(r){return r.json()})
+    .then(function(data){ renderDay(data); })
+    .catch(function(){ document.getElementById('day-view').innerHTML = '<div class="empty">Error loading data</div>'; });
+}
+
+function navigateDay(delta) {
+  var dayEl = document.getElementById('day-date');
+  var parts = dayEl.value.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  d.setDate(d.getDate() + delta);
+  var pad = function(n){return String(n).padStart(2,'0')};
+  dayEl.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+  loadDay();
+}
+
+function goToday() {
+  var now = new Date();
+  var pad = function(n){return String(n).padStart(2,'0')};
+  document.getElementById('day-date').value = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate());
+  loadDay();
+}
+
+function renderDay(data) {
+  var html = '<div class="person-detail-card">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+  html += '<h3 style="margin:0">' + htmlEscape(data.date) + '</h3>';
+  html += '<span class="' + getStatusClass(data.status) + '">' + getStatusLabel(data) + '</span>';
+  html += '</div>';
+
+  if (data.is_weekend) {
+    html += '<div class="stat-row"><span class="stat-label">Day Type</span><span class="stat-value" style="color:#8b949e">Weekend</span></div>';
+  } else if (data.is_holiday) {
+    html += '<div class="stat-row"><span class="stat-label">Holiday</span><span class="stat-value" style="color:#58a6ff">' + htmlEscape(data.holiday_name || 'Yes') + '</span></div>';
+  }
+
+  if (data.absence) {
+    html += '<div class="stat-row"><span class="stat-label">Absence Type</span><span class="stat-value">' + data.absence.type.replace('_',' ').replace(/\b\w/g,function(c){return c.toUpperCase()}) + '</span></div>';
+    if (data.absence.note) {
+      html += '<div class="stat-row"><span class="stat-label">Note</span><span class="stat-value" style="color:#8b949e">' + data.absence.note + '</span></div>';
+    }
+    if (data.absence.end_date && data.absence.end_date !== data.date) {
+      html += '<div class="stat-row"><span class="stat-label">Range</span><span class="stat-value" style="font-size:11px">' + htmlEscape(data.absence.start_date) + ' -> ' + htmlEscape(data.absence.end_date) + '</span></div>';
+    }
+  }
+
+  html += '<div class="stat-row"><span class="stat-label">Total Voice Time</span><span class="stat-value">' + data.total_minutes + ' min</span></div>';
+  if (data.first_join) {
+    html += '<div class="stat-row"><span class="stat-label">First Join (WIB)</span><span class="stat-value">' + fmtWIB(data.first_join) + '</span></div>';
+  }
+  if (data.last_leave) {
+    html += '<div class="stat-row"><span class="stat-label">Last Leave (WIB)</span><span class="stat-value">' + fmtWIB(data.last_leave) + '</span></div>';
+  }
+  html += '</div>';
+
+  if (data.sessions && data.sessions.length) {
+    html += '<h3 style="font-size:13px;color:#8b949e;margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.5px">Voice Sessions (' + data.sessions.length + ')</h3>';
+    data.sessions.forEach(function(s, i) {
+      var badge = '';
+      if (i === 0) badge = '<span class="session-badge session-badge-first">First</span>';
+      if (i === data.sessions.length - 1) badge = '<span class="session-badge session-badge-last">Last</span>';
+      html += '<div class="session-item">';
+      html += '<div style="display:flex;justify-content:space-between">';
+      html += '<span class="session-channel">#' + htmlEscape(s.channel_name) + badge + '</span>';
+      html += '<span>' + (s.duration_minutes !== null ? s.duration_minutes + ' min' : '<span style=\color:#3fb950\>active</span>') + '</span>';
+      html += '</div>';
+      html += '<div class="session-time">' + htmlEscape(fmtWIB(s.join_time)) + ' -> ' + (s.leave_time ? htmlEscape(fmtWIB(s.leave_time)) : '<span style="color:#3fb950">active</span>') + '</div>';
+      html += '</div>';
+    });
+  }
+
+  document.getElementById('day-view').innerHTML = html;
+}
+
+function loadStats() {
+  var fromDate = document.getElementById('range-from').value;
+  var toDate = document.getElementById('range-to').value;
+  if (!fromDate || !toDate) {
+    document.getElementById('stats-view').innerHTML = '<div class="empty">Please select both From and To dates</div>';
+    return;
+  }
+  fetch(API + '/api/person/' + discordId + '/stats?from=' + fromDate + '&to=' + toDate)
+    .then(function(r){return r.json()})
+    .then(function(data){ renderStats(data); })
+    .catch(function(){ document.getElementById('stats-view').innerHTML = '<div class="empty">Error loading stats</div>'; });
+}
+
+function renderStats(data) {
+  var counts = data.day_counts;
+  var total = data.total_data_days;
+  var totalDays = data.total_days_in_range;
+
+  var html = '<div class="person-detail-card">';
+  html += '<div style="display:flex;justify-content:space-between;margin-bottom:8px">';
+  html += '<h3 style="margin:0">Summary: ' + htmlEscape(data.from) + ' -> ' + htmlEscape(data.to) + '</h3>';
+  html += '<span style="color:#8b949e;font-size:12px">' + total + ' working days / ' + totalDays + ' total</span>';
+  html += '</div>';
+  html += '<div class="stat-row"><span class="stat-label">Total Voice Time</span><span class="stat-value">' + data.total_voice_minutes + ' min</span></div>';
+  if (data.days_with_voice > 0) {
+    html += '<div class="stat-row"><span class="stat-label">Avg Voice / Day</span><span class="stat-value">' + data.avg_voice_minutes + ' min</span></div>';
+  }
+  html += '<div class="stat-row"><span class="stat-label">Days with Voice</span><span class="stat-value">' + htmlEscape(data.days_with_voice) + ' day' + (data.days_with_voice !== 1 ? 's' : '') + '</span></div>';
+  html += '</div>';
+
+  html += '<div class="stats-grid">';
+  var statItems = [
+    {label: 'Present', value: counts.present, color: '#3fb950'},
+    {label: 'Late', value: counts.late, color: '#d29922'},
+    {label: 'Missing', value: counts.missing, color: '#484f58'},
+    {label: 'Sick', value: counts.sick, color: '#d29922'},
+    {label: 'Day Off', value: counts.day_off, color: '#da3633'},
+    {label: 'Paid Leave', value: counts.paid_leave, color: '#58a6ff'},
+    {label: 'AFK', value: counts.afk, color: '#3fb950'},
+    {label: 'Other', value: counts.other_absence, color: '#8b949e'},
+    {label: 'Holiday', value: counts.holiday, color: '#58a6ff'},
+    {label: 'Weekend', value: counts.weekend, color: '#8b949e'},
+  ];
+  statItems.forEach(function(item) {
+    var pct = total > 0 ? Math.round(item.value / total * 100) : 0;
+    html += '<div class="stat-card"><div class="stat-card-num" style="color:' + item.color + '">' + htmlEscape(item.value) + '</div>';
+    html += '<div class="stat-card-label">' + htmlEscape(item.label) + '</div>';
+    html += '<div style="font-size:10px;color:#484f58;margin-top:2px">' + htmlEscape(pct) + '%</div></div>';
+  });
+  html += '</div>';
+
+  if (total > 0) {
+    html += '<div style="margin-top:12px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">';
+    html += '<h3 style="font-size:12px;color:#8b949e;margin-bottom:8px;text-transform:uppercase">Distribution</h3>';
+    var barItems = [
+      {label: 'Present', val: counts.present, color: '#3fb950'},
+      {label: 'Late', val: counts.late, color: '#d29922'},
+      {label: 'Missing', val: counts.missing, color: '#484f58'},
+      {label: 'Sick', val: counts.sick, color: '#d29922'},
+      {label: 'Day Off', val: counts.day_off, color: '#da3633'},
+      {label: 'Leave', val: counts.paid_leave, color: '#58a6ff'},
+      {label: 'AFK', val: counts.afk, color: '#3fb950'},
+    ];
+    var barTotal = barItems.reduce(function(s, i){return s + i.val}, 0);
+    if (barTotal > 0) {
+      html += '<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;margin-bottom:8px">';
+      barItems.forEach(function(item) {
+        var pct2 = Math.round(item.val / barTotal * 100);
+        if (pct2 > 0) {
+          html += '<div style="flex:' + pct2 + ';background:' + item.color + ';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#000;min-width:24px">' + (pct2 >= 8 ? pct2 + '%' : '') + '</div>';
+        }
+      });
+      html += '</div>';
+    }
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
+    barItems.forEach(function(item) {
+      if (item.val > 0) {
+        html += '<span style="font-size:11px"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + item.color + ';margin-right:4px"></span>' + htmlEscape(item.label) + ': ' + htmlEscape(item.val) + '</span>';
+      }
+    });
+    html += '</div></div>';
+  }
+
+  document.getElementById('stats-view').innerHTML = html;
+}
+
+// Run on page load
+initPage();
+</script>

@@ -16,10 +16,10 @@ import asyncio
 # ── Config ──────────────────────────────────────────────
 TOKEN = os.environ["HRBOT_TOKEN"]
 DEEPSEEK_KEY = os.environ["DEEPSEEK_API_KEY"]
-DB_PATH = Path("./hr.db")
-LOG_PATH = Path("./bot.log")
-ABSENSI_CHANNEL_ID = 0  # Set to your Discord absensi channel ID
-CMD_CHANNEL_IDS = set()  # Set to your Discord command channel ID(s)
+DB_PATH = Path(os.environ.get("HRBOT_DB_PATH", "hr.db"))
+LOG_PATH = Path(os.environ.get("HRBOT_LOG_PATH", "bot.log"))
+ABSENSI_CHANNEL_ID = int(os.environ.get("ABSENSI_CHANNEL_ID", "0"))
+CMD_CHANNEL_IDS = set()  # Configure in .env or code — channel IDs for @bot commands
 
 # ── Logging ─────────────────────────────────────────────
 logging.basicConfig(

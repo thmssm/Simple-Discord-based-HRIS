@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HRIS Demo — Simple Discord-based HRIS</title>
+<style>
+/* === Reset & Base === */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--nav-width:232px;--nav-collapsed:72px;--nav-bg:#1a1d23;--nav-bg-hover:#2a2d35;--nav-bg-active:#2d3a5c;--nav-text:#c4c7d0;--nav-text-active:#e3e5ea;--nav-accent:#7c9aff;--nav-divider:#2e313a;--topbar-bg:#1a1d23;--topbar-height:56px;--content-bg:#0f1117;--content-text:#e3e5ea;--drawer-width:300px;--drawer-bg:#1a1d23}
+body{background:var(--content-bg);color:var(--content-text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.5;min-height:100vh}
+a{color:inherit;text-decoration:none}
+
+/* === Layout === */
+.layout{display:flex;min-height:100vh}
+
+/* === Nav Rail === */
+.nav-rail{position:fixed;left:0;top:0;bottom:0;width:var(--nav-width);background:var(--nav-bg);display:flex;flex-direction:column;z-index:100;transition:width .2s;border-right:1px solid var(--nav-divider)}
+.nav-rail-header{padding:20px 20px 16px;display:flex;flex-direction:column;gap:2px}
+.nav-rail-header .logo{font-size:20px;font-weight:700;color:var(--nav-accent);letter-spacing:.5px}
+.logo-text .logo-sub{font-size:11px;color:var(--nav-text);letter-spacing:1px;text-transform:uppercase;opacity:.6}
+.nav-rail-items{flex:1;padding:8px 12px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;color:var(--nav-text);transition:all .15s;font-size:14px;font-weight:500;cursor:pointer}
+.nav-item:hover{background:var(--nav-bg-hover);color:var(--nav-text-active)}
+.nav-item.active{background:var(--nav-bg-active);color:var(--nav-text-active)}
+.nav-item .icon{font-size:20px;width:24px;text-align:center;flex-shrink:0}
+.nav-item .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-divider{height:1px;background:var(--nav-divider);margin:8px 12px}
+.nav-spacer{flex:1}
+
+/* === Main Content === */
+.layout-main{margin-left:var(--nav-width);flex:1;padding:24px 32px;min-height:100vh;width:calc(100% - var(--nav-width));background:var(--content-bg)}
+.page-title{margin-bottom:20px;font-size:24px;font-weight:700}
+
+/* === Cards === */
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin-bottom:16px}
+.card h3{font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px}
+.stat-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.stat-card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;flex:1;min-width:140px}
+.stat-card .stat-label{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+.stat-card .stat-value{font-size:22px;font-weight:700}
+
+/* === Tables === */
+.table-wrap{width:100%;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;color:#8b949e;font-weight:600;border-bottom:2px solid #30363d;font-size:11px;text-transform:uppercase}
+td{padding:8px 12px;border-bottom:1px solid #21262d}
+tr:hover td{background:#1c2128}
+
+/* === Badges === */
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-present{background:#23863620;color:#3fb950;border:1px solid #238636}
+.badge-late{background:#d2992220;color:#d29922;border:1px solid #d29922}
+.badge-missing{background:#da363320;color:#f85149;border:1px solid #da3633}
+.badge-sick{background:#58a6ff20;color:#58a6ff;border:1px solid #58a6ff}
+.badge-leave{background:#bc8cff20;color:#bc8cff;border:1px solid #bc8cff}
+.badge-off{background:#8b949e20;color:#8b949e;border:1px solid #8b949e}
+
+/* === Person Detail === */
+.person-header{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+.person-avatar{width:48px;height:48px;border-radius:50%;background:#2d3a5c;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--nav-accent)}
+.person-name{font-size:20px;font-weight:600}
+.person-role{font-size:13px;color:#8b949e}
+
+/* === Calendar Grid === */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#21262d;border-radius:8px;overflow:hidden}
+.cal-header{background:#161b22;padding:10px;text-align:center;font-size:12px;color:#8b949e;font-weight:600}
+.cal-day{background:#0d1117;min-height:80px;padding:6px;font-size:12px;cursor:pointer;transition:background .15s}
+.cal-day:hover{background:#161b22}
+.cal-day.today{background:#1a2332;border:1px solid #2d3a5c}
+.cal-day.other-month{opacity:.3}
+.cal-day .day-num{font-size:13px;font-weight:600;margin-bottom:4px}
+.cal-day .cal-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin:1px}
+
+/* === Grid layout for pages === */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+/* === Mobile responsive === */
+@media(max-width:1024px){
+  .nav-rail{width:var(--nav-collapsed)}
+  .nav-rail .logo-text,.nav-rail .nav-item .label{display:none}
+  .nav-rail .nav-item{justify-content:center;padding:10px}
+  .nav-rail-header{align-items:center;padding:16px 0}
+  .nav-rail-items{padding:8px 4px}
+  .layout-main{margin-left:var(--nav-collapsed);width:calc(100% - var(--nav-collapsed))}
+}
+@media(max-width:640px){
+  .nav-rail{display:none}
+  .layout-main{margin-left:0;padding:16px;width:100%}
+  .grid-2{grid-template-columns:1fr}
+  .stat-row{flex-direction:column}
+}
+
+/* === Utilities === */
+.flex{display:flex}
+.gap-8{gap:8px}
+.gap-12{gap:12px}
+.mt-12{margin-top:12px}
+.mb-12{margin-bottom:12px}
+.text-muted{color:#8b949e;font-size:12px}
+.text-right{text-align:right}
+.text-center{text-align:center}
+</style>
+</head>
+<body>
+<div class="layout">
+  <!-- Nav Rail -->
+  <nav class="nav-rail" id="nav-rail">
+    <div class="nav-rail-header">
+      <span class="logo">HRIS</span>
+      <div class="logo-text"><span class="logo-sub">Demo</span></div>
+    </div>
+    <div class="nav-rail-items">
+      <div class="nav-item active" onclick="showPage('dashboard')" data-page="dashboard"><span class="icon">📊</span><span class="label">Dashboard</span></div>
+      <div class="nav-item" onclick="showPage('absences')" data-page="absences"><span class="icon">📋</span><span class="label">Absences</span></div>
+      <div class="nav-item" onclick="showPage('people')" data-page="people"><span class="icon">👥</span><span class="label">People</span></div>
+      <div class="nav-item" onclick="showPage('calendar')" data-page="calendar"><span class="icon">📅</span><span class="label">Calendar</span></div>
+      <div class="nav-item" onclick="showPage('reports')" data-page="reports"><span class="icon">📈</span><span class="label">Reports</span></div>
+      <div class="nav-divider"></div>
+      <div class="nav-item" onclick="showPage('admin')" data-page="admin"><span class="icon">⚙️</span><span class="label">Admin</span></div>
+    </div>
+    <div class="nav-spacer"></div>
+    <div class="nav-item" onclick="showPage('about')" data-page="about" style="border-top:1px solid var(--nav-divider);border-radius:0;padding:12px 24px"><span class="icon">ℹ️</span><span class="label">About</span></div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="layout-main" id="main-content">
+    <!-- Content rendered here by JS -->
+  </main>
+</div>
+
+<script>
+// ===== MOCK DATA =====
+const MOCK = {
+  today: '2026-07-06',
+  members: [
+    {id:1,discord_id:'10001',first_name:'Alex',last_name:'Chen',nickname:'',gender:'M',role:'Developer',division_id:1,active:1},
+    {id:2,discord_id:'10002',first_name:'Bella',last_name:'Sanchez',nickname:'',gender:'F',role:'Designer',division_id:2,active:1},
+    {id:3,discord_id:'10003',first_name:'Carlos',last_name:'Mendez',nickname:'',gender:'M',role:'Developer',division_id:1,active:1},
+    {id:4,discord_id:'10004',first_name:'Diana',last_name:'Kim',nickname:'',gender:'F',role:'PM',division_id:3,active:1},
+    {id:5,discord_id:'10005',first_name:'Erik',last_name:'Johansson',nickname:'',gender:'M',role:'Developer',division_id:1,active:1},
+    {id:6,discord_id:'10006',first_name:'Fiona',last_name:'Okafor',nickname:'',gender:'F',role:'QA',division_id:1,active:1},
+    {id:7,discord_id:'10007',first_name:'Grace',last_name:'Lee',nickname:'',gender:'F',role:'Designer',division_id:2,active:1},
+    {id:8,discord_id:'10008',first_name:'Hiro',last_name:'Tanaka',nickname:'',gender:'M',role:'Developer',division_id:1,active:1},
+    {id:9,discord_id:'10009',first_name:'Ivy',last_name:'Nguyen',nickname:'',gender:'F',role:'HR',division_id:4,active:1},
+    {id:10,discord_id:'10010',first_name:'James',last_name:'Wilson',nickname:'',gender:'M',role:'DevOps',division_id:1,active:1},
+    {id:11,discord_id:'10011',first_name:'Kiran',last_name:'Patel',nickname:'',gender:'M',role:'Developer',division_id:1,active:1},
+    {id:12,discord_id:'10012',first_name:'Luna',last_name:'Martinez',nickname:'',gender:'F',role:'Developer',division_id:1,active:0},
+  ],
+  absences: [
+    {id:1,discord_id:'10002',type:'sick',start_date:'2026-07-06',end_date:null,note:'Flu',created_by:'self'},
+    {id:2,discord_id:'10007',type:'leave',start_date:'2026-07-06',end_date:'2026-07-10',note:'Vacation',created_by:'self'},
+    {id:3,discord_id:'10010',type:'late',start_date:'2026-07-06',end_date:null,note:'Traffic',created_by:'self'},
+  ],
+  voiceSessions: [
+    {id:1,user_id:'10001',user_name:'Alex Chen',channel_name:'General',join_time:'2026-07-06 00:30:00',leave_time:'2026-07-06 02:15:00',duration_minutes:105},
+    {id:2,user_id:'10003',user_name:'Carlos Mendez',channel_name:'General',join_time:'2026-07-06 00:35:00',leave_time:'2026-07-06 03:00:00',duration_minutes:145},
+    {id:3,user_id:'10005',user_name:'Erik Johansson',channel_name:'Dev',join_time:'2026-07-06 01:00:00',leave_time:'2026-07-06 04:30:00',duration_minutes:210},
+    {id:4,user_id:'10008',user_name:'Hiro Tanaka',channel_name:'Dev',join_time:'2026-07-06 01:10:00',leave_time:'2026-07-06 03:45:00',duration_minutes:155},
+    {id:5,user_id:'10011',user_name:'Kiran Patel',channel_name:'General',join_time:'2026-07-06 02:00:00',leave_time:'2026-07-06 04:00:00',duration_minutes:120},
+  ],
+  activeVoice: [
+    {user_id:'10001',user_name:'Alex Chen',channel_name:'General'},
+    {user_id:'10005',user_name:'Erik Johansson',channel_name:'Dev'},
+    {user_id:'10011',user_name:'Kiran Patel',channel_name:'General'},
+  ],
+  meetings: [
+    {id:1,name:'Daily Standup',start_time:'01:00:00',end_time:'01:30:00',channel_name:'General',day_of_week:'0,1,2,3,4'},
+    {id:2,name:'Sprint Planning',start_time:'02:00:00',end_time:'03:00:00',channel_name:'General',day_of_week:'1'},
+    {id:3,name:'Design Review',start_time:'03:00:00',end_time:'03:30:00',channel_name:'Design',day_of_week:'2,4'},
+    {id:4,name:'Friday Sync',start_time:'01:00:00',end_time:'02:00:00',channel_name:'General',day_of_week:'4'},
+  ],
+  schedules: [
+    {id:1,name:'Daily Standup',day_of_week:'0,1,2,3,4',start_time:'01:00:00',end_time:'01:30:00',channel_name:'General',members:['10001','10003','10005','10008','10011']},
+    {id:2,name:'Design Review',day_of_week:'2,4',start_time:'03:00:00',end_time:'03:30:00',channel_name:'Design',members:['10002','10007']},
+  ],
+  holidays: [
+    {date:'2026-07-20',name:'Demo Holiday'},
+    {date:'2026-08-17',name:'Independence Day'},
+  ],
+  divisions: [
+    {id:1,name:'Engineering'},{id:2,name:'Design'},{id:3,name:'Product'},{id:4,name:'HR'},
+  ],
+};
+
+// ===== HELPERS =====
+function htmlEscape(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+function fmtTime(t){
+  if(!t)return '';
+  var parts=t.split(':'),h=parseInt(parts[0]),m=parseInt(parts[1]);
+  var wh=(h+7)%24;
+  return String(wh).padStart(2,'0')+':'+String(m).padStart(2,'0');
+}
+
+function fmtDuration(mins){
+  if(!mins)return '';
+  var h=Math.floor(mins/60),m=mins%60;
+  return(h?h+'h ':'')+m+'m';
+}
+
+function memberName(id){
+  var m=MOCK.members.find(function(x){return x.discord_id===id||x.id===id});
+  return m?m.first_name+' '+(m.last_name||''):id;
+}
+
+function memberById(id){
+  return MOCK.members.find(function(x){return x.id===id});
+}
+
+function getActiveMembers(){
+  return MOCK.members.filter(function(m){return m.active});
+}
+
+// ===== PAGE RENDERERS =====
+function renderDashboard(){
+  var todayAbsences=MOCK.absences.filter(function(a){return a.start_date===MOCK.today});
+  var uniqueVoice=MOCK.voiceSessions.reduce(function(acc,s){acc[s.user_id]=1;return acc},{});
+  var uniqueActive=MOCK.activeVoice.reduce(function(acc,s){acc[s.user_id]=1;return acc},{});
+  var totalAttendees=Object.keys(uniqueVoice).length+Object.keys(uniqueActive).length;
+
+  var html='';
+  html+='<h2 class="page-title">Dashboard</h2>';
+  html+='<div class="stat-row">';
+  html+='  <div class="stat-card"><div class="stat-label">In Voice Now</div><div class="stat-value" style="color:#3fb950">'+MOCK.activeVoice.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Today Sessions</div><div class="stat-value">'+MOCK.voiceSessions.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Attendees Today</div><div class="stat-value" style="color:#58a6ff">'+totalAttendees+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Absences</div><div class="stat-value" style="color:#f85149">'+todayAbsences.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Active Members</div><div class="stat-value">'+getActiveMembers().length+'</div></div>';
+  html+='</div>';
+
+  // Active voice
+  html+='<div class="card"><h3>🎤 In Voice Now</h3>';
+  if(MOCK.activeVoice.length){
+    html+='<table><thead><tr><th>Name</th><th>Channel</th></tr></thead><tbody>';
+    MOCK.activeVoice.forEach(function(s){
+      html+='<tr><td>'+htmlEscape(s.user_name)+'</td><td>#'+htmlEscape(s.channel_name)+'</td></tr>';
+    });
+    html+='</tbody></table>';
+  }else{
+    html+='<p class="text-muted">No one is in voice currently.</p>';
+  }
+  html+='</div>';
+
+  // Today's voice sessions
+  html+='<div class="card"><h3>📊 Today\'s Voice Sessions</h3>';
+  if(MOCK.voiceSessions.length){
+    html+='<div class="table-wrap"><table><thead><tr><th>Name</th><th>Channel</th><th>Duration</th></tr></thead><tbody>';
+    MOCK.voiceSessions.sort(function(a,b){return b.duration_minutes-a.duration_minutes});
+    MOCK.voiceSessions.forEach(function(s){
+      html+='<tr><td>'+htmlEscape(s.user_name)+'</td><td>#'+htmlEscape(s.channel_name)+'</td><td>'+fmtDuration(s.duration_minutes)+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  }else{html+='<p class="text-muted">No sessions recorded today.</p>';}
+  html+='</div>';
+
+  // Upcoming meetings
+  html+='<div class="card"><h3>📅 Today\'s Meetings</h3>';
+  var todayMeetings=MOCK.meetings.map(function(m){return m});
+  if(todayMeetings.length){
+    html+='<div class="table-wrap"><table><thead><tr><th>Name</th><th>Time (WIB)</th><th>Channel</th></tr></thead><tbody>';
+    todayMeetings.forEach(function(m){
+      html+='<tr><td>'+htmlEscape(m.name)+'</td><td>'+fmtTime(m.start_time)+' - '+fmtTime(m.end_time)+'</td><td>#'+htmlEscape(m.channel_name)+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  }else{html+='<p class="text-muted">No meetings scheduled today.</p>';}
+  html+='</div>';
+
+  // Today's absences
+  html+='<div class="card"><h3>📋 Today\'s Absences</h3>';
+  if(todayAbsences.length){
+    html+='<div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Note</th></tr></thead><tbody>';
+    todayAbsences.forEach(function(a){
+      var badgeClass='badge-'+a.type;
+      html+='<tr><td>'+htmlEscape(memberName(a.discord_id))+'</td><td><span class="badge '+badgeClass+'">'+htmlEscape(a.type)+'</span></td><td class="text-muted">'+htmlEscape(a.note||'')+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  }else{html+='<p class="text-muted">No absences today.</p>';}
+  html+='</div>';
+
+  document.getElementById('main-content').innerHTML=html;
+}
+
+function renderAbsences(){
+  var html='<h2 class="page-title">Absences</h2>';
+  html+='<div class="card">';
+  html+='<div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Start</th><th>End</th><th>Note</th></tr></thead><tbody>';
+  MOCK.absences.sort(function(a,b){return a.start_date>b.start_date?-1:1});
+  MOCK.absences.forEach(function(a){
+    var badgeClass='badge-'+a.type;
+    html+='<tr><td>'+htmlEscape(memberName(a.discord_id))+'</td><td><span class="badge '+badgeClass+'">'+htmlEscape(a.type)+'</span></td><td>'+htmlEscape(a.start_date)+'</td><td>'+(a.end_date||'—')+'</td><td class="text-muted">'+htmlEscape(a.note||'')+'</td></tr>';
+  });
+  html+='</tbody></table></div>';
+  html+='</div>';
+  document.getElementById('main-content').innerHTML=html;
+}
+
+function renderPeople(){
+  var html='<h2 class="page-title">People</h2>';
+  html+='<div class="card">';
+  html+='<div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Division</th><th>Status</th></tr></thead><tbody>';
+  getActiveMembers().sort(function(a,b){return a.first_name.localeCompare(b.first_name)}).forEach(function(m){
+    var div=MOCK.divisions.find(function(d){return d.id===m.division_id});
+    html+='<tr onclick="showPerson('+m.id+')" style="cursor:pointer">';
+    html+='<td><div class="flex gap-8"><div class="person-avatar" style="width:28px;height:28px;font-size:12px;margin-right:4px;display:inline-flex">'+m.first_name[0]+'</div>'+htmlEscape(m.first_name+' '+m.last_name)+'</div></td>';
+    html+='<td>'+htmlEscape(m.role)+'</td><td>'+(div?htmlEscape(div.name):'')+'</td>';
+    html+='<td><span class="badge badge-present">Active</span></td></tr>';
+  });
+  html+='</tbody></table></div>';
+  html+='</div>';
+  document.getElementById('main-content').innerHTML=html;
+}
+
+function showPerson(id){
+  var m=memberById(id);
+  if(!m)return renderPeople();
+  var div=MOCK.divisions.find(function(d){return d.id===m.division_id});
+  var personSessions=MOCK.voiceSessions.filter(function(s){return s.user_id===m.discord_id});
+  var personAbsences=MOCK.absences.filter(function(a){return a.discord_id===m.discord_id});
+  var totalMin=personSessions.reduce(function(sum,s){return sum+(s.duration_minutes||0)},0);
+
+  var html='<a href="#" onclick="renderPeople();return false" class="text-muted" style="font-size:13px">← Back to People</a>';
+  html+='<div class="person-header" style="margin-top:12px">';
+  html+='  <div class="person-avatar">'+m.first_name[0]+'</div>';
+  html+='  <div><div class="person-name">'+htmlEscape(m.first_name+' '+m.last_name)+'</div>';
+  html+='  <div class="person-role">'+(div?htmlEscape(div.name)+' · ':'')+htmlEscape(m.role)+'</div></div>';
+  html+='</div>';
+
+  html+='<div class="stat-row">';
+  html+='  <div class="stat-card"><div class="stat-label">Sessions Today</div><div class="stat-value">'+personSessions.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Total Time</div><div class="stat-value">'+fmtDuration(totalMin)+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Absences</div><div class="stat-value">'+personAbsences.length+'</div></div>';
+  html+='</div>';
+
+  if(personSessions.length){
+    html+='<div class="card"><h3>Voice Sessions</h3><div class="table-wrap"><table><thead><tr><th>Channel</th><th>Join</th><th>Leave</th><th>Duration</th></tr></thead><tbody>';
+    personSessions.forEach(function(s,i){
+      html+='<tr><td>#'+htmlEscape(s.channel_name)+'</td><td>'+htmlEscape(s.join_time)+'</td><td>'+(s.leave_time||'<em>active</em>')+'</td><td>'+(s.duration_minutes?fmtDuration(s.duration_minutes):'')+'</td></tr>';
+    });
+    html+='</tbody></table></div></div>';
+  }
+
+  document.getElementById('main-content').innerHTML=html;
+}
+
+function renderCalendar(){
+  var now=new Date();
+  var year=now.getFullYear(),month=now.getMonth();
+  var firstDay=new Date(year,month,1).getDay();
+  var daysInMonth=new Date(year,month+1,0).getDate();
+  var daysInPrev=new Date(year,month,0).getDate();
+  var monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var dayNames=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var todayStr=MOCK.today;
+
+  var html='<h2 class="page-title">Calendar — '+monthNames[month]+' '+year+'</h2>';
+  html+='<div class="cal-grid">';
+  dayNames.forEach(function(d){html+='<div class="cal-header">'+d+'</div>'});
+
+  // Previous month days
+  var startOffset=firstDay===0?6:firstDay-1;
+  for(var i=startOffset-1;i>=0;i--){
+    html+='<div class="cal-day other-month"><div class="day-num">'+(daysInPrev-i)+'</div></div>';
+  }
+
+  // Current month days
+  for(var d=1;d<=daysInMonth;d++){
+    var dateStr=year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    var isToday=dateStr===todayStr?'today':'';
+    var isHoliday=MOCK.holidays.find(function(h){return h.date===dateStr});
+
+    html+='<div class="cal-day '+isToday+'"><div class="day-num">'+d+'</div>';
+    if(isHoliday)html+='<div class="cal-dot" style="background:#f85149" title="'+htmlEscape(isHoliday.name)+'"></div>';
+    html+='<div style="font-size:10px;color:#8b949e;margin-top:2px">'+ (isHoliday?isHoliday.name.substring(0,10):'') +'</div>';
+    html+='</div>';
+  }
+
+  // Next month days
+  var totalCells=startOffset+daysInMonth;
+  var remaining=(7-totalCells%7)%7;
+  for(var i=1;i<=remaining;i++){
+    html+='<div class="cal-day other-month"><div class="day-num">'+i+'</div></div>';
+  }
+  html+='</div>';
+
+  // Holidays list
+  html+='<div class="card" style="margin-top:16px"><h3>📌 Holidays</h3>';
+  if(MOCK.holidays.length){
+    html+='<div class="table-wrap"><table><thead><tr><th>Date</th><th>Name</th></tr></thead><tbody>';
+    MOCK.holidays.forEach(function(h){
+      html+='<tr><td>'+htmlEscape(h.date)+'</td><td>'+htmlEscape(h.name)+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  }else{html+='<p class="text-muted">No holidays.</p>';}
+  html+='</div>';
+
+  // Schedules
+  html+='<div class="card"><h3>🔁 Recurring Schedules</h3>';
+  if(MOCK.schedules.length){
+    html+='<div class="table-wrap"><table><thead><tr><th>Name</th><th>Days</th><th>Time (WIB)</th><th>Channel</th><th>Assigned</th></tr></thead><tbody>';
+    MOCK.schedules.forEach(function(s){
+      var days=s.day_of_week.split(',').map(function(d){return dayNames[parseInt(d)].substring(0,3)}).join(', ');
+      var members=(s.members||[]).map(function(did){return memberName(did)}).join(', ');
+      html+='<tr><td>'+htmlEscape(s.name)+'</td><td style="font-size:11px">'+days+'</td><td>'+fmtTime(s.start_time)+' - '+fmtTime(s.end_time)+'</td><td>#'+htmlEscape(s.channel_name)+'</td><td class="text-muted" style="font-size:11px">'+htmlEscape(members)+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  }else{html+='<p class="text-muted">No schedules configured.</p>';}
+  html+='</div>';
+
+  document.getElementById('main-content').innerHTML=html;
+}
+
+function renderReports(){
+  var html='<h2 class="page-title">Reports</h2>';
+  html+='<div class="card"><h3>📈 Attendance Summary</h3>';
+  html+='<div class="stat-row">';
+  html+='  <div class="stat-card"><div class="stat-label">Total Sessions</div><div class="stat-value">'+MOCK.voiceSessions.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Active Now</div><div class="stat-value" style="color:#3fb950">'+MOCK.activeVoice.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Absences Today</div><div class="stat-value" style="color:#f85149">'+MOCK.absences.filter(function(a){return a.start_date===MOCK.today}).length+'</div></div>';
+  var totalMin=MOCK.voiceSessions.reduce(function(sum,s){return sum+(s.duration_minutes||0)},0);
+  html+='  <div class="stat-card"><div class="stat-label">Total Voice Time</div><div class="stat-value">'+fmtDuration(totalMin)+'</div></div>';
+  html+='</div></div>';
+
+  html+='<div class="grid-2">';
+  html+='<div class="card"><h3>Voice Sessions</h3><div class="table-wrap"><table><thead><tr><th>Name</th><th>Duration</th></tr></thead><tbody>';
+  MOCK.voiceSessions.sort(function(a,b){return b.duration_minutes-a.duration_minutes}).forEach(function(s){
+    html+='<tr><td>'+htmlEscape(s.user_name)+'</td><td>'+fmtDuration(s.duration_minutes)+'</td></tr>';
+  });
+  html+='</tbody></table></div></div>';
+
+  html+='<div class="card"><h3>Type Breakdown</h3><div class="table-wrap"><table><thead><tr><th>Type</th><th>Count</th></tr></thead><tbody>';
+  var typeCount={};
+  MOCK.absences.forEach(function(a){typeCount[a.type]=(typeCount[a.type]||0)+1});
+  Object.keys(typeCount).forEach(function(t){
+    html+='<tr><td><span class="badge badge-'+t+'">'+htmlEscape(t)+'</span></td><td>'+typeCount[t]+'</td></tr>';
+  });
+  html+='</tbody></table></div></div>';
+  html+='</div>';
+
+  html+='<div class="card"><h3>📅 Today\'s Meetings</h3><div class="table-wrap"><table><thead><tr><th>Name</th><th>Time (WIB)</th><th>Channel</th></tr></thead><tbody>';
+  MOCK.meetings.forEach(function(m){
+    html+='<tr><td>'+htmlEscape(m.name)+'</td><td>'+fmtTime(m.start_time)+' - '+fmtTime(m.end_time)+'</td><td>#'+htmlEscape(m.channel_name)+'</td></tr>';
+  });
+  html+='</tbody></table></div></div>';
+
+  document.getElementById('main-content').innerHTML=html;
+}
+
+function renderAdmin(){
+  var html='<h2 class="page-title">Admin — Members</h2>';
+  html+='<div class="card"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Discord ID</th><th>Gender</th><th>Role</th><th>Division</th><th>Status</th></tr></thead><tbody>';
+  MOCK.members.forEach(function(m){
+    var div=MOCK.divisions.find(function(d){return d.id===m.division_id});
+    html+='<tr><td>'+htmlEscape(m.first_name+' '+m.last_name)+'</td><td style="font-size:11px;color:#8b949e">'+htmlEscape(m.discord_id)+'</td><td>'+(m.gender||'')+'</td><td>'+(m.role||'')+'</td><td>'+(div?htmlEscape(div.name):'')+'</td>';
+    html+='<td><span class="badge '+(m.active?'badge-present':'badge-missing')+'">'+(m.active?'Active':'Inactive')+'</span></td></tr>';
+  });
+  html+='</tbody></table></div></div>';
+  document.getElementById('main-content').innerHTML=html;
+}
+
+function renderAbout(){
+  var html='<h2 class="page-title">About This Demo</h2>';
+  html+='<div class="card">';
+  html+='<p>This is a <strong>static demo</strong> of the Simple Discord-based HRIS dashboard. All data is hardcoded for demonstration purposes — no backend, no database, no Discord connection required.</p>';
+  html+='<p style="margin-top:12px">The live system uses:</p>';
+  html+='<ul style="margin:8px 0 0 20px;line-height:1.8">';
+  html+='  <li><strong>bot.py</strong> — Discord bot for attendance, voice tracking, and absence reporting</li>';
+  html+='  <li><strong>dashboard_api.py</strong> — Python HTTP server serving this dashboard with live SQLite data</li>';
+  html+='  <li><strong>LLM-powered absence parsing</strong> — team members report absences in natural language</li>';
+  html+='</ul>';
+  html+='</div>';
+
+  html+='<div class="card"><h3>📊 Demo Data at a Glance</h3>';
+  html+='<div class="stat-row">';
+  html+='  <div class="stat-card"><div class="stat-label">Members</div><div class="stat-value">'+MOCK.members.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value">'+getActiveMembers().length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Divisions</div><div class="stat-value">'+MOCK.divisions.length+'</div></div>';
+  html+='  <div class="stat-card"><div class="stat-label">Voice Sessions</div><div class="stat-value">'+MOCK.voiceSessions.length+'</div></div>';
+  html+='</div>';
+  html+='<p class="text-muted" style="margin-top:12px">View the full source code on <a href="https://github.com/thmssm/Simple-Discord-based-HRIS" style="color:#58a6ff">GitHub</a>.</p>';
+  html+='</div>';
+  document.getElementById('main-content').innerHTML=html;
+}
+
+// ===== PAGE ROUTER =====
+function showPage(page){
+  document.querySelectorAll('.nav-item').forEach(function(el){el.classList.remove('active')});
+  var navItem=document.querySelector('.nav-item[data-page="'+page+'"]');
+  if(navItem)navItem.classList.add('active');
+
+  switch(page){
+    case 'dashboard':renderDashboard();break;
+    case 'absences':renderAbsences();break;
+    case 'people':renderPeople();break;
+    case 'calendar':renderCalendar();break;
+    case 'reports':renderReports();break;
+    case 'admin':renderAdmin();break;
+    case 'about':renderAbout();break;
+    default:renderDashboard();
+  }
+}
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded',function(){showPage('dashboard')});
+</script>
+</body>
+</html>
